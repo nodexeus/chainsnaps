@@ -1,0 +1,20 @@
+# Development override configuration
+# Copy this to docker-compose.override.yaml for local development
+
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    environment:
+      RELOAD: "true"
+      LOG_LEVEL: debug
+    volumes:
+      # Mount source code for hot reloading
+      - ./api:/app
+    ports:
+      - "8000:8000"
+
+  postgres:
+    ports:
+      - "5432:5432"
