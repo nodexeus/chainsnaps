@@ -8,7 +8,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/yourusername/snapd/internal/config"
+	"github.com/nodexeus/agent/internal/config"
 )
 
 // EthereumModule implements the ProtocolModule interface for Ethereum nodes

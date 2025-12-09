@@ -6,12 +6,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nodexeus/agent/internal/config"
+	"github.com/nodexeus/agent/internal/database"
+	"github.com/nodexeus/agent/internal/notification"
+	"github.com/nodexeus/agent/internal/protocol"
 	"github.com/robfig/cron/v3"
 	"github.com/sirupsen/logrus"
-	"github.com/yourusername/snapd/internal/config"
-	"github.com/yourusername/snapd/internal/database"
-	"github.com/yourusername/snapd/internal/notification"
-	"github.com/yourusername/snapd/internal/protocol"
 )
 
 // Job represents a scheduled task

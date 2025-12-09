@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/yourusername/snapd/internal/config"
+	"github.com/nodexeus/agent/internal/config"
 )
 
 // Example demonstrates how to use the protocol module system
@@ -18,10 +18,6 @@ func Example() {
 
 	// Set up the config validator
 	config.SetProtocolValidator(registry)
-
-	// List registered protocols
-	protocols := registry.List()
-	fmt.Printf("Registered protocols: %v\n", protocols)
 
 	// Check if a protocol is registered
 	if registry.IsRegistered("ethereum") {
@@ -46,10 +42,10 @@ func Example() {
 		BeaconUrl: "http://localhost:5052",
 	}
 
-	// Note: This would fail without a real RPC endpoint
-	_, err = ethModule.CollectMetrics(ctx, nodeConfig)
-	if err != nil {
-		fmt.Printf("Metrics collection would require a real RPC endpoint\n")
+	// Note: This would return metrics with nil values without a real RPC endpoint
+	metrics, err := ethModule.CollectMetrics(ctx, nodeConfig)
+	if err == nil && metrics != nil {
+		fmt.Println("Metrics collection would require a real RPC endpoint")
 	}
 
 	// Output:

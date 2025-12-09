@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/yourusername/snapd/internal/config"
+	"github.com/nodexeus/agent/internal/config"
 )
 
 // mockProtocolModule is a mock implementation for testing

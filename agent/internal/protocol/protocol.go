@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/yourusername/snapd/internal/config"
+	"github.com/nodexeus/agent/internal/config"
 )
 
 // ProtocolModule defines the interface for blockchain-specific metric collection

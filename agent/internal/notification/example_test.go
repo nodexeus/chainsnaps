@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yourusername/snapd/internal/config"
+	"github.com/nodexeus/agent/internal/config"
 )
 
 // Example demonstrates how to use the notification module system

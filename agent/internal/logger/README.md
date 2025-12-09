@@ -15,7 +15,7 @@ The logger package provides structured logging functionality for the Snapshot Da
 ### Creating a Logger
 
 ```go
-import "github.com/yourusername/snapd/internal/logger"
+import "github.com/nodexeus/agent/internal/logger"
 
 // Default logger (daemon mode, JSON format, info level)
 log := logger.Default()

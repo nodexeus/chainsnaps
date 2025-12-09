@@ -1,4 +1,4 @@
-module github.com/yourusername/snapd
+module github.com/nodexeus/agent
 
 go 1.24.6
 

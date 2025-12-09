@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/nodexeus/agent/internal/logger"
 	"github.com/sirupsen/logrus"
-	"github.com/yourusername/snapd/internal/logger"
 )
 
 func Example_daemonMode() {

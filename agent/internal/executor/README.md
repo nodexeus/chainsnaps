@@ -25,7 +25,7 @@ import (
     "time"
     
     "github.com/sirupsen/logrus"
-    "github.com/yourusername/snapd/internal/executor"
+    "github.com/nodexeus/agent/internal/executor"
 )
 
 // Create an executor with a logger

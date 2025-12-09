@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nodexeus/agent/internal/config"
+	"github.com/nodexeus/agent/internal/database"
+	"github.com/nodexeus/agent/internal/notification"
+	"github.com/nodexeus/agent/internal/protocol"
+	"github.com/nodexeus/agent/internal/upload"
 	"github.com/sirupsen/logrus"
-	"github.com/yourusername/snapd/internal/config"
-	"github.com/yourusername/snapd/internal/database"
-	"github.com/yourusername/snapd/internal/notification"
-	"github.com/yourusername/snapd/internal/protocol"
-	"github.com/yourusername/snapd/internal/upload"
 )
 
 // Mock implementations for testing

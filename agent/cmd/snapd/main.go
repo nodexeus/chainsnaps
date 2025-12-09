@@ -10,15 +10,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nodexeus/agent/internal/config"
+	"github.com/nodexeus/agent/internal/database"
+	"github.com/nodexeus/agent/internal/executor"
+	"github.com/nodexeus/agent/internal/logger"
+	"github.com/nodexeus/agent/internal/notification"
+	"github.com/nodexeus/agent/internal/protocol"
+	"github.com/nodexeus/agent/internal/scheduler"
+	"github.com/nodexeus/agent/internal/upload"
 	"github.com/sirupsen/logrus"
-	"github.com/yourusername/snapd/internal/config"
-	"github.com/yourusername/snapd/internal/database"
-	"github.com/yourusername/snapd/internal/executor"
-	"github.com/yourusername/snapd/internal/logger"
-	"github.com/yourusername/snapd/internal/notification"
-	"github.com/yourusername/snapd/internal/protocol"
-	"github.com/yourusername/snapd/internal/scheduler"
-	"github.com/yourusername/snapd/internal/upload"
 )
 
 var (
