@@ -11,6 +11,10 @@ jobs:
   build:
     name: Build Go Agent
     runs-on: self-hosted
+    env:
+      HOME: /tmp/runner-home
+      GOCACHE: /tmp/go-cache
+      GOMODCACHE: /tmp/go-mod-cache
     
     steps:
       - name: Checkout code
@@ -28,8 +32,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
+            /tmp/go-cache
+            /tmp/go-mod-cache
           key: ${{ runner.os }}-go-${{ hashFiles('agent/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
