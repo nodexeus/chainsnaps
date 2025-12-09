@@ -1,0 +1,79 @@
+name: Build Agent
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Go Agent
+    runs-on: self-hosted
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for git commit info
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.6'
+          cache-dependency-path: agent/go.sum
+      
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('agent/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      
+      - name: Download dependencies
+        working-directory: ./agent
+        run: go mod download
+      
+      - name: Generate build info
+        working-directory: ./agent/cmd/snapd
+        run: go generate
+      
+      - name: Build binary
+        working-directory: ./agent
+        run: go build -o bin/snapd ./cmd/snapd
+      
+      - name: Run tests
+        working-directory: ./agent
+        run: go test -v ./...
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapd
+          path: agent/bin/snapd
+          retention-days: 30
+      
+      - name: Extract version from version.go
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        id: get_version
+        run: |
+          VERSION=$(grep -oP 'const Version = "\K[^"]+' agent/cmd/snapd/version.go)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+      
+      - name: Create Release
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          name: Release v${{ steps.get_version.outputs.version }}
+          files: agent/bin/snapd
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
