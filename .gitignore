@@ -28,3 +28,7 @@ htmlcov/
 # Logs
 logs/
 *.log
+
+# Go
+agent/bin/
+agent/cmd/snapd/build_info.go

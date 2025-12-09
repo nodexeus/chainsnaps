@@ -1,0 +1,76 @@
+# ============================================================================
+# Snapshot Daemon Environment Variables
+# ============================================================================
+# This file contains environment variables for the Snapshot Daemon.
+# Copy this file to /etc/snapd/environment and customize for your setup.
+#
+# Usage with systemd:
+#   1. Copy to /etc/snapd/environment
+#   2. Set secure permissions: chmod 600 /etc/snapd/environment
+#   3. Reference in systemd unit: EnvironmentFile=/etc/snapd/environment
+#
+# Usage in shell:
+#   source /etc/snapd/environment
+#   snapd --config /etc/snapd/config.yaml
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Database Configuration
+# ----------------------------------------------------------------------------
+# PostgreSQL password (referenced in config.yaml as ${DB_PASSWORD})
+DB_PASSWORD=your_secure_database_password
+
+# Optional: Override other database settings
+# DB_HOST=localhost
+# DB_PORT=5432
+# DB_NAME=snapd
+# DB_USER=snapd
+# DB_SSL_MODE=require
+
+# ----------------------------------------------------------------------------
+# Notification Webhooks (Optional)
+# ----------------------------------------------------------------------------
+# If you prefer to store webhook URLs in environment variables instead of
+# the config file, you can reference them using ${VAR_NAME} syntax
+
+# Discord webhook URLs
+# DISCORD_WEBHOOK_MAIN=https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_TOKEN
+# DISCORD_WEBHOOK_ETHEREUM=https://discord.com/api/webhooks/ETH_WEBHOOK_ID/ETH_TOKEN
+# DISCORD_WEBHOOK_ARBITRUM=https://discord.com/api/webhooks/ARB_WEBHOOK_ID/ARB_TOKEN
+
+# Slack webhook URLs
+# SLACK_WEBHOOK_MAIN=https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
+
+# ----------------------------------------------------------------------------
+# Logging Configuration (Optional)
+# ----------------------------------------------------------------------------
+# Log level: debug, info, warn, error
+# LOG_LEVEL=info
+
+# Log format: json, text
+# LOG_FORMAT=json
+
+# ----------------------------------------------------------------------------
+# RPC Endpoints (Optional)
+# ----------------------------------------------------------------------------
+# If your RPC endpoints require authentication, you can store credentials here
+# and reference them in config.yaml
+
+# ETH_RPC_URL=http://localhost:8545
+# ETH_BEACON_URL=http://localhost:5052
+# ARB_RPC_URL=http://localhost:8547
+
+# For authenticated endpoints:
+# ETH_RPC_URL=http://username:password@localhost:8545
+# ETH_RPC_TOKEN=your_api_token
+
+# ----------------------------------------------------------------------------
+# Security Notes
+# ----------------------------------------------------------------------------
+# 1. This file contains sensitive credentials - protect it carefully
+# 2. Set restrictive permissions: chmod 600 /etc/snapd/environment
+# 3. Ensure ownership: chown snapd:snapd /etc/snapd/environment
+# 4. Never commit this file to version control
+# 5. Use different credentials for production and development
+# 6. Rotate credentials regularly
+# ============================================================================

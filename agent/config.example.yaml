@@ -1,0 +1,222 @@
+# ============================================================================
+# Snapshot Daemon Configuration Example
+# ============================================================================
+# This file demonstrates all available configuration options for the
+# Snapshot Daemon (snapd). Copy this file to /etc/snapd/config.yaml
+# and customize for your environment.
+#
+# For more information, see: agent/README.md
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Global Schedule
+# ----------------------------------------------------------------------------
+# Cron expression for status update checks across all nodes
+# Format: "minute hour day month weekday"
+# Default: "* * * * *" (every minute)
+#
+# This schedule controls how often the daemon checks upload status and progress.
+# It does NOT control when uploads are initiated - that's per-node.
+#
+# Examples:
+#   "* * * * *"      - Every minute (recommended)
+#   "*/5 * * * *"    - Every 5 minutes
+#
+# Note: Keep this frequent (every minute) for responsive monitoring.
+# Upload schedules are configured per-node (required field).
+schedule: "* * * * *"
+
+# ----------------------------------------------------------------------------
+# Global Notification Defaults
+# ----------------------------------------------------------------------------
+# These settings apply to all nodes unless overridden in per-node configuration
+# Supports multiple notification types simultaneously
+#
+# Available notification types:
+#   - discord: Discord webhook notifications
+#   - slack: Slack webhook notifications (future)
+#   - email: Email notifications (future)
+#
+# Event flags:
+#   - failure: Send notification when upload fails
+#   - skip: Send notification when upload is skipped (already running)
+#   - complete: Send notification when upload completes successfully
+#
+# Multiple notification types can be configured simultaneously.
+# Each type requires a URL (webhook endpoint, email server, etc.)
+# When an event occurs, notifications are sent to ALL configured types.
+notifications:
+  failure: true      # Notify on upload failures
+  skip: false        # Notify when uploads are skipped
+  complete: true     # Notify on successful completion
+  
+  # Configure one or more notification types
+  discord:
+    url: https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN
+  
+  # Uncomment to enable additional notification types:
+  # slack:
+  #   url: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
+  # 
+  # Multiple types will all receive notifications:
+  # email:
+  #   url: smtp://mail.example.com
+
+# ----------------------------------------------------------------------------
+# Database Configuration
+# ----------------------------------------------------------------------------
+# PostgreSQL connection settings for storing metrics and upload status
+#
+# Environment Variable Support:
+#   Use ${VAR_NAME} syntax to reference environment variables
+#   Example: password: ${DB_PASSWORD}
+#
+# SSL Modes:
+#   - disable: No SSL
+#   - require: SSL required (no certificate verification)
+#   - verify-ca: SSL required with CA verification
+#   - verify-full: SSL required with full verification
+database:
+  host: localhost
+  port: 5432
+  database: snapd
+  user: snapd
+  password: ${DB_PASSWORD}  # Recommended: use environment variable
+  ssl_mode: require
+
+# ----------------------------------------------------------------------------
+# Node Definitions
+# ----------------------------------------------------------------------------
+# Each node represents a blockchain client to monitor and backup
+#
+# Required fields:
+#   - protocol: Protocol type (ethereum, arbitrum, etc.)
+#   - url: Base URL for the node (protocol module builds specific endpoints)
+#   - schedule: Cron schedule for upload initiation (REQUIRED - no default)
+#
+# Optional fields:
+#   - type: Node type (archive, full, light) - for metadata only
+#   - notifications: Per-node notification settings (overrides global)
+#
+# URL Configuration:
+#   The protocol module uses the base URL to construct specific endpoints:
+#   - ethereum: Uses url for RPC, appends /beacon for consensus layer
+#   - arbitrum: Uses url directly for RPC
+#   - Other protocols: Define their own endpoint construction logic
+#
+# Schedule Configuration:
+#   Each node MUST have its own upload schedule. The global schedule is only
+#   for status checks (every minute). Upload schedules should be much less
+#   frequent (hours or days) to avoid overwhelming the system.
+nodes:
+  # -------------------------------------------------------------------------
+  # Ethereum Mainnet Archive Node
+  # -------------------------------------------------------------------------
+  # Full example with all options and per-node notification overrides
+  ethereum-mainnet:
+    protocol: ethereum           # Protocol module to use
+    type: archive               # Node type (metadata only)
+    url: http://localhost:8545  # Base URL (protocol builds specific endpoints)
+    schedule: "0 */6 * * *"     # REQUIRED: Upload every 6 hours
+    
+    # Per-node notification override (optional)
+    # Completely replaces global notification settings for this node
+    # All configured types will receive notifications for this node
+    notifications:
+      failure: true
+      skip: true               # Enable skip notifications for this node
+      complete: true
+      discord:
+        url: https://discord.com/api/webhooks/ETHEREUM_SPECIFIC_WEBHOOK
+      # Can configure multiple types per node:
+      slack:
+        url: https://hooks.slack.com/services/ETHEREUM/SLACK/WEBHOOK
+
+  # -------------------------------------------------------------------------
+  # Arbitrum One Archive Node
+  # -------------------------------------------------------------------------
+  # Example with different schedule, uses global notifications
+  arbitrum-one:
+    protocol: arbitrum
+    type: archive
+    url: http://localhost:8547  # Base URL for Arbitrum node
+    schedule: "0 */12 * * *"    # REQUIRED: Upload every 12 hours
+    # No notifications section = uses global notification settings
+
+  # -------------------------------------------------------------------------
+  # Ethereum Sepolia Testnet
+  # -------------------------------------------------------------------------
+  # Minimal configuration example with required fields only
+  ethereum-sepolia:
+    protocol: ethereum
+    type: full
+    url: http://localhost:8548  # Protocol module will append /beacon as needed
+    schedule: "0 0 * * *"       # REQUIRED: Upload daily at midnight
+
+  # -------------------------------------------------------------------------
+  # Additional Node Examples
+  # -------------------------------------------------------------------------
+  # Uncomment and customize as needed:
+  
+  # ethereum-goerli:
+  #   protocol: ethereum
+  #   type: archive
+  #   url: http://localhost:8549
+  #   schedule: "0 0 * * *"     # REQUIRED: Daily at midnight
+  
+  # arbitrum-nova:
+  #   protocol: arbitrum
+  #   type: full
+  #   url: http://localhost:8550
+  #   schedule: "0 */8 * * *"   # REQUIRED: Every 8 hours
+  
+  # ethereum-with-different-ports:
+  #   protocol: ethereum
+  #   type: archive
+  #   url: http://localhost:9000  # RPC on 9000, beacon will be 9000/beacon
+  #   schedule: "0 */6 * * *"     # REQUIRED: Every 6 hours
+
+# ============================================================================
+# Configuration Notes
+# ============================================================================
+#
+# 1. Schedule Format:
+#    Cron expressions use 5 fields: minute hour day month weekday
+#    Use https://crontab.guru/ to validate expressions
+#
+# 2. Notification Inheritance:
+#    - Nodes without a notifications section use global settings
+#    - Nodes with a notifications section completely override global settings
+#    - You must specify all desired notification types in the override
+#
+# 3. Environment Variables:
+#    - Use ${VAR_NAME} syntax anywhere in the configuration
+#    - Commonly used for: database passwords, webhook URLs, API keys
+#    - Set via systemd environment file or shell export
+#
+# 4. Protocol Modules:
+#    - ethereum: Uses base URL for RPC, appends /beacon for consensus layer
+#      Queries: eth_blockNumber, beacon slot, earliest blob
+#    - arbitrum: Uses base URL directly for RPC
+#      Queries: eth_blockNumber
+#    - Additional protocols can be added via protocol module interface
+#
+# 5. Node Schedules:
+#    - Each node MUST have a schedule field (no default)
+#    - Global schedule is for status checks only (every minute)
+#    - Node schedules should be infrequent (hours/days) for uploads
+#    - Never set a node schedule to run every minute
+#
+# 6. Upload Commands:
+#    The daemon executes these commands for each node:
+#    - Status check: bv n j <node_name> info upload
+#    - Start upload: bv n run upload <node_name>
+#    Ensure the 'bv' CLI is installed and accessible
+#
+# 7. Database Schema:
+#    The daemon requires these tables (created via migrations):
+#    - node_metrics: Stores RPC query results
+#    - uploads: Tracks upload operations
+#    - upload_progress: Monitors upload progress
+#
+# ============================================================================

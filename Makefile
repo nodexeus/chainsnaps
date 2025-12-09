@@ -1,4 +1,4 @@
-.PHONY: help build up down restart logs shell db-shell migrate clean
+.PHONY: help build up down restart logs shell db-shell migrate clean build-agent test-agent
 
 help:
 	@echo "Available commands:"
@@ -13,6 +13,8 @@ help:
 	@echo "  make migrate     - Run database migrations"
 	@echo "  make clean       - Remove volumes and containers"
 	@echo "  make scan        - Trigger manual snapshot scan"
+	@echo "  make build-agent - Build the snapshot daemon binary"
+	@echo "  make test-agent  - Run agent tests"
 
 build:
 	docker-compose build
@@ -50,3 +52,13 @@ scan:
 	curl -X POST http://localhost:8000/api/v1/snapshots/scan \
 		-H "X-API-Key: $$API_KEY" \
 		-H "Content-Type: application/json"
+
+build-agent:
+	@echo "Building snapshot daemon..."
+	cd agent/cmd/snapd && go generate
+	cd agent && go build -o bin/snapd ./cmd/snapd
+	@echo "Binary built at agent/bin/snapd"
+
+test-agent:
+	@echo "Running agent tests..."
+	cd agent && go test -v ./...
