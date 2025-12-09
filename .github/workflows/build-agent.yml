@@ -85,3 +85,21 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload snapd to bins bucket
+        uses: magicwallet/r2-upload@main
+        with:
+          endpoint: ${{ vars.S3_URL }}
+          access_key_id: ${{ secrets.S3_KEY_ID }}
+          secret_access_key: ${{ secrets.S3_SECRET_KEY }}
+          bucket: ${{ vars.BIN_BUCKET }}
+          file: agent/bin/snapd
+          destination: agent/${{ steps.get_version.outputs.VERSION }}/snapd
+        
+        # uses: yamatt/backblaze-b2-upload-action@v7
+        # with:
+        #   key_id: ${{ secrets.S3_KEY_ID }}
+        #   application_key: ${{ secrets.S3_SECRET_KEY }}
+        #   bucket_name: ${{ vars.BIN_BUCKET }}
+        #   file_path: ./snapper
+        #   remote_path: ${{ steps.get_version.outputs.VERSION }}/snapper
