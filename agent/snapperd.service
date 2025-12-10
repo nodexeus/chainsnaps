@@ -9,8 +9,8 @@ Type=simple
 User=snapd
 Group=snapd
 
-# Path to the snapd binary
-ExecStart=/usr/local/bin/snapd --config /etc/snapd/config.yaml
+# Path to the snapperd binary
+ExecStart=/usr/local/bin/snapperd --config /etc/snapd/config.yaml
 
 # Restart policy
 Restart=on-failure
@@ -27,7 +27,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/snapd
+ReadWritePaths=/var/lib/snapperd
 
 # Resource limits
 LimitNOFILE=65536
@@ -36,7 +36,7 @@ LimitNPROC=512
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=snapd
+SyslogIdentifier=snapperd
 
 # Graceful shutdown
 TimeoutStopSec=30

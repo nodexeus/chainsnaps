@@ -47,12 +47,12 @@ jobs:
         run: go mod download
       
       - name: Generate build info
-        working-directory: ./agent/cmd/snapd
+        working-directory: ./agent/cmd/snapperd
         run: go generate
       
       - name: Build binary
         working-directory: ./agent
-        run: go build -o bin/snapd ./cmd/snapd
+        run: go build -o bin/snapperd ./cmd/snapperd
       
       - name: Run tests
         working-directory: ./agent
@@ -61,15 +61,15 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: snapd
-          path: agent/bin/snapd
+          name: snapperd
+          path: agent/bin/snapperd
           retention-days: 30
       
       - name: Extract version from version.go
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         id: get_version
         run: |
-          VERSION=$(grep -oP 'const Version = "\K[^"]+' agent/cmd/snapd/version.go)
+          VERSION=$(grep -oP 'const Version = "\K[^"]+' agent/cmd/snapperd/version.go)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Extracted version: $VERSION"
       
@@ -79,32 +79,32 @@ jobs:
         with:
           tag_name: v${{ steps.get_version.outputs.version }}
           name: Release v${{ steps.get_version.outputs.version }}
-          files: agent/bin/snapd
+          files: agent/bin/snapperd
           draft: false
           prerelease: false
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload snapd to bins bucket
+      - name: Upload snapperd to bins bucket
         uses: magicwallet/r2-upload@main
         with:
           endpoint: ${{ vars.S3_URL }}
           access_key_id: ${{ secrets.S3_KEY_ID }}
           secret_access_key: ${{ secrets.S3_SECRET_KEY }}
           bucket: ${{ vars.BIN_BUCKET }}
-          file: agent/bin/snapd
-          destination: agent/${{ steps.get_version.outputs.VERSION }}/snapd
+          file: agent/bin/snapperd
+          destination: agent/${{ steps.get_version.outputs.VERSION }}/snapperd
 
-      - name: Upload snapd to bins bucket
+      - name: Upload snapperd to bins bucket
         uses: magicwallet/r2-upload@main
         with:
           endpoint: ${{ vars.S3_URL }}
           access_key_id: ${{ secrets.S3_KEY_ID }}
           secret_access_key: ${{ secrets.S3_SECRET_KEY }}
           bucket: ${{ vars.BIN_BUCKET }}
-          file: agent/bin/snapd
-          destination: agent/latest/snapd
+          file: agent/bin/snapperd
+          destination: agent/latest/snapperd
         
         # uses: yamatt/backblaze-b2-upload-action@v7
         # with:
