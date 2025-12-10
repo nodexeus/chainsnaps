@@ -116,7 +116,7 @@ func (m *Manager) CheckUploadStatus(ctx context.Context, nodeName string) (*Uplo
 			return status, nil
 		}
 
-		// For other errors (like "Read-only file system"), return the error
+		// For other errors, return the error
 		// Don't assume the upload status based on command execution issues
 		m.logger.WithFields(logrus.Fields{
 			"component": "upload",

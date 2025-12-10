@@ -63,8 +63,6 @@ func (e *DefaultExecutor) Execute(ctx context.Context, command string, args ...s
 		"command":   command,
 		"args":      args,
 		"duration":  duration,
-		"stdout":    stdout,
-		"stderr":    stderr,
 	}
 
 	if execErr != nil {
@@ -79,6 +77,7 @@ func (e *DefaultExecutor) Execute(ctx context.Context, command string, args ...s
 
 		// Log the error with full details
 		logFields["error"] = execErr.Error()
+		logFields["stderr"] = stderr
 		e.logger.WithFields(logFields).Error("Command execution failed")
 		return stdout, stderr, fmt.Errorf("command failed: %w", execErr)
 	}
