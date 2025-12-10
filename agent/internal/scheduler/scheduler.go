@@ -355,16 +355,18 @@ func (j *NodeUploadJob) sendNotification(ctx context.Context, event notification
 
 // UploadMonitorJob monitors all running uploads and updates their progress
 type UploadMonitorJob struct {
-	uploadManager UploadManager
-	db            Database
-	logger        *logrus.Logger
-	nodeConfigs   map[string]config.NodeConfig
+	uploadManager    UploadManager
+	db               Database
+	protocolRegistry *protocol.Registry
+	logger           *logrus.Logger
+	nodeConfigs      map[string]config.NodeConfig
 }
 
 // NewUploadMonitorJob creates a new upload monitor job
 func NewUploadMonitorJob(
 	uploadManager UploadManager,
 	db Database,
+	protocolRegistry *protocol.Registry,
 	nodeConfigs map[string]config.NodeConfig,
 	logger *logrus.Logger,
 ) *UploadMonitorJob {
@@ -373,10 +375,11 @@ func NewUploadMonitorJob(
 	}
 
 	return &UploadMonitorJob{
-		uploadManager: uploadManager,
-		db:            db,
-		logger:        logger,
-		nodeConfigs:   nodeConfigs,
+		uploadManager:    uploadManager,
+		db:               db,
+		protocolRegistry: protocolRegistry,
+		logger:           logger,
+		nodeConfigs:      nodeConfigs,
 	}
 }
 
@@ -428,14 +431,48 @@ func (j *UploadMonitorJob) Run(ctx context.Context) error {
 
 			// Only create record for truly external uploads (not already tracked)
 			if status.IsRunning {
-				// Convert upload.JSONB to regular map for the upload manager
-				progressData := make(map[string]interface{})
-				for k, v := range status.Progress {
-					progressData[k] = v
+				nodeConfig := j.nodeConfigs[node]
+
+				// Collect protocol metrics for discovered uploads
+				var protocolData map[string]interface{}
+				if protocolModule, err := j.protocolRegistry.Get(nodeConfig.Protocol); err == nil {
+					metrics, err := protocolModule.CollectMetrics(ctx, nodeConfig)
+					if err != nil {
+						j.logger.WithFields(logrus.Fields{
+							"component": "scheduler",
+							"node":      node,
+							"protocol":  nodeConfig.Protocol,
+							"error":     err.Error(),
+						}).Warn("Failed to collect protocol metrics for discovered upload, using progress data only")
+
+						// Fallback to progress data only
+						protocolData = make(map[string]interface{})
+						for k, v := range status.Progress {
+							protocolData[k] = v
+						}
+					} else {
+						// Merge protocol metrics with progress data
+						protocolData = make(map[string]interface{})
+
+						// Add protocol metrics first
+						for k, v := range metrics {
+							protocolData[k] = v
+						}
+
+						// Add progress data (may override some protocol metrics)
+						for k, v := range status.Progress {
+							protocolData[k] = v
+						}
+					}
+				} else {
+					// No protocol module, use progress data only
+					protocolData = make(map[string]interface{})
+					for k, v := range status.Progress {
+						protocolData[k] = v
+					}
 				}
 
-				nodeConfig := j.nodeConfigs[node]
-				uploadID, err := j.uploadManager.CreateUploadRecord(ctx, node, nodeConfig.Protocol, nodeConfig.Type, "discovered", progressData)
+				uploadID, err := j.uploadManager.CreateUploadRecord(ctx, node, nodeConfig.Protocol, nodeConfig.Type, "discovered", protocolData)
 				if err != nil {
 					j.logger.WithFields(logrus.Fields{
 						"component": "scheduler",
@@ -449,7 +486,7 @@ func (j *UploadMonitorJob) Run(ctx context.Context) error {
 					"component": "scheduler",
 					"node":      node,
 					"upload_id": uploadID,
-				}).Info("Discovered and registered upload")
+				}).Info("Discovered and registered upload with protocol data")
 			}
 		}(nodeName)
 	}

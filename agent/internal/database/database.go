@@ -161,6 +161,24 @@ func (db *DB) UpdateUpload(ctx context.Context, upload Upload) error {
 	return db.execWithRetry(ctx, query, upload.CompletedAt, upload.Status, upload.ErrorMessage, upload.ProgressPercent, upload.ChunksCompleted, upload.ChunksTotal, upload.LastProgressCheck, upload.TotalChunks, upload.CompletionMessage, upload.ID)
 }
 
+// UpdateUploadProgress updates only the progress-related fields of an upload record
+func (db *DB) UpdateUploadProgress(ctx context.Context, uploadID int64, status string, progressPercent *float64, chunksCompleted *int, chunksTotal *int, lastProgressCheck *time.Time) error {
+	query := `UPDATE uploads 
+	          SET status = $1, progress_percent = $2, chunks_completed = $3, chunks_total = $4, last_progress_check = $5
+	          WHERE id = $6`
+
+	return db.execWithRetry(ctx, query, status, progressPercent, chunksCompleted, chunksTotal, lastProgressCheck, uploadID)
+}
+
+// UpdateUploadCompletion updates an upload record when it completes
+func (db *DB) UpdateUploadCompletion(ctx context.Context, uploadID int64, completedAt time.Time, status string, totalChunks *int, completionMessage *string, errorMessage *string) error {
+	query := `UPDATE uploads 
+	          SET completed_at = $1, status = $2, total_chunks = $3, completion_message = $4, error_message = $5
+	          WHERE id = $6`
+
+	return db.execWithRetry(ctx, query, completedAt, status, totalChunks, completionMessage, errorMessage, uploadID)
+}
+
 // GetRunningUploads retrieves all currently running uploads
 func (db *DB) GetRunningUploads(ctx context.Context) ([]Upload, error) {
 	query := `SELECT id, node_name, protocol, node_type, started_at, completed_at, status, 

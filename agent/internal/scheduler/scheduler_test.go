@@ -498,7 +498,8 @@ func TestUploadMonitorJob_NoRunningUploads(t *testing.T) {
 		},
 	}
 
-	job := NewUploadMonitorJob(uploadManager, db, map[string]config.NodeConfig{}, logger)
+	protocolRegistry := protocol.NewRegistry()
+	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, map[string]config.NodeConfig{}, logger)
 
 	ctx := context.Background()
 	err := job.Run(ctx)
@@ -534,7 +535,8 @@ func TestUploadMonitorJob_MonitorsMultipleUploads(t *testing.T) {
 		},
 	}
 
-	job := NewUploadMonitorJob(uploadManager, db, map[string]config.NodeConfig{}, logger)
+	protocolRegistry := protocol.NewRegistry()
+	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, map[string]config.NodeConfig{}, logger)
 
 	ctx := context.Background()
 	err := job.Run(ctx)
@@ -589,7 +591,8 @@ func TestUploadMonitorJob_NodeIsolation(t *testing.T) {
 		},
 	}
 
-	job := NewUploadMonitorJob(uploadManager, db, map[string]config.NodeConfig{}, logger)
+	protocolRegistry := protocol.NewRegistry()
+	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, map[string]config.NodeConfig{}, logger)
 
 	ctx := context.Background()
 	err := job.Run(ctx)
@@ -662,7 +665,8 @@ func TestUploadMonitorJob_ExternalUploadDiscovery(t *testing.T) {
 		"normal-node":   {Protocol: "ethereum", Type: "execution"},
 	}
 
-	job := NewUploadMonitorJob(uploadManager, db, nodeConfigs, logger)
+	protocolRegistry := protocol.NewRegistry()
+	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, nodeConfigs, logger)
 
 	ctx := context.Background()
 
@@ -752,7 +756,8 @@ func TestUploadMonitorJob_DoesNotDuplicateTrackedUploads(t *testing.T) {
 		"tracked-node": {Protocol: "ethereum", Type: "execution"},
 	}
 
-	job := NewUploadMonitorJob(uploadManager, db, nodeConfigs, logger)
+	protocolRegistry := protocol.NewRegistry()
+	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, nodeConfigs, logger)
 
 	ctx := context.Background()
 	err := job.Run(ctx)

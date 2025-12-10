@@ -42,6 +42,8 @@ type Upload struct {
 type Database interface {
 	CreateUpload(ctx context.Context, upload Upload) (int64, error)
 	UpdateUpload(ctx context.Context, upload Upload) error
+	UpdateUploadProgress(ctx context.Context, uploadID int64, status string, progressPercent *float64, chunksCompleted *int, chunksTotal *int, lastProgressCheck *time.Time) error
+	UpdateUploadCompletion(ctx context.Context, uploadID int64, completedAt time.Time, status string, totalChunks *int, completionMessage *string, errorMessage *string) error
 	GetRunningUploadForNode(ctx context.Context, nodeName string) (*Upload, error)
 	GetLatestCompletedUploadForNode(ctx context.Context, nodeName string) (*Upload, error)
 }
@@ -197,17 +199,49 @@ func (m *Manager) parseUploadStatus(output string) (*UploadStatus, error) {
 		switch strings.ToLower(key) {
 		case "status":
 			status.Progress["status"] = value
-			// Check if status indicates running
-			lowerValue := strings.ToLower(value)
-			if strings.Contains(lowerValue, "running") {
-				status.IsRunning = true
-			} else if strings.Contains(lowerValue, "finished") ||
-				strings.Contains(lowerValue, "completed") ||
-				strings.Contains(lowerValue, "failed") ||
-				strings.Contains(lowerValue, "exit code") ||
-				strings.Contains(lowerValue, "unknown") ||
-				strings.Contains(lowerValue, "error") {
-				status.IsRunning = false
+
+			// Extract started_at timestamp from status line
+			// Format: "2025-12-10 15:18:44 UTC| Running"
+			if strings.Contains(value, "UTC|") {
+				parts := strings.SplitN(value, "UTC|", 2)
+				if len(parts) == 2 {
+					timestampStr := strings.TrimSpace(parts[0]) + " UTC"
+					statusStr := strings.TrimSpace(parts[1])
+
+					// Parse the timestamp
+					if parsedTime, err := time.Parse("2006-01-02 15:04:05 MST", timestampStr); err == nil {
+						status.Progress["started_at"] = parsedTime.Format(time.RFC3339)
+					}
+
+					// Store the actual status
+					status.Progress["actual_status"] = statusStr
+
+					// Check if status indicates running
+					lowerStatusStr := strings.ToLower(statusStr)
+					if strings.Contains(lowerStatusStr, "running") {
+						status.IsRunning = true
+					} else if strings.Contains(lowerStatusStr, "finished") ||
+						strings.Contains(lowerStatusStr, "completed") ||
+						strings.Contains(lowerStatusStr, "failed") ||
+						strings.Contains(lowerStatusStr, "exit code") ||
+						strings.Contains(lowerStatusStr, "unknown") ||
+						strings.Contains(lowerStatusStr, "error") {
+						status.IsRunning = false
+					}
+				}
+			} else {
+				// Fallback for different format
+				lowerValue := strings.ToLower(value)
+				if strings.Contains(lowerValue, "running") {
+					status.IsRunning = true
+				} else if strings.Contains(lowerValue, "finished") ||
+					strings.Contains(lowerValue, "completed") ||
+					strings.Contains(lowerValue, "failed") ||
+					strings.Contains(lowerValue, "exit code") ||
+					strings.Contains(lowerValue, "unknown") ||
+					strings.Contains(lowerValue, "error") {
+					status.IsRunning = false
+				}
 			}
 
 		case "progress":
@@ -408,13 +442,6 @@ func (m *Manager) MonitorUploadProgress(ctx context.Context, uploadID int64, nod
 
 	// Update progress in the main upload record
 	now := time.Now()
-	upload := Upload{
-		ID:                uploadID,
-		ProgressPercent:   progressPercent,
-		ChunksCompleted:   chunksCompleted,
-		ChunksTotal:       chunksTotal,
-		LastProgressCheck: &now,
-	}
 
 	// If upload is no longer running, mark as completed
 	if !status.IsRunning {
@@ -426,10 +453,16 @@ func (m *Manager) MonitorUploadProgress(ctx context.Context, uploadID int64, nod
 			completionMessage = &statusMsg
 		}
 
-		upload.Status = "completed"
-		upload.CompletedAt = &completedAt
-		upload.TotalChunks = chunksTotal // Set final chunk count
-		upload.CompletionMessage = completionMessage
+		// Update completion data
+		if err := m.db.UpdateUploadCompletion(ctx, uploadID, completedAt, "completed", chunksTotal, completionMessage, nil); err != nil {
+			m.logger.WithFields(logrus.Fields{
+				"component": "upload",
+				"node":      nodeName,
+				"upload_id": uploadID,
+				"error":     err.Error(),
+			}).Error("Failed to update upload completion")
+			return fmt.Errorf("failed to update upload completion: %w", err)
+		}
 
 		m.logger.WithFields(logrus.Fields{
 			"component":          "upload",
@@ -438,17 +471,26 @@ func (m *Manager) MonitorUploadProgress(ctx context.Context, uploadID int64, nod
 			"total_chunks":       chunksTotal,
 			"completion_message": completionMessage,
 		}).Info("Upload completed")
-	}
+	} else {
+		// Upload is still running - update progress only
+		if err := m.db.UpdateUploadProgress(ctx, uploadID, "running", progressPercent, chunksCompleted, chunksTotal, &now); err != nil {
+			m.logger.WithFields(logrus.Fields{
+				"component": "upload",
+				"node":      nodeName,
+				"upload_id": uploadID,
+				"error":     err.Error(),
+			}).Error("Failed to update upload progress")
+			return fmt.Errorf("failed to update upload progress: %w", err)
+		}
 
-	// Update the upload record with progress and/or completion data
-	if err := m.db.UpdateUpload(ctx, upload); err != nil {
 		m.logger.WithFields(logrus.Fields{
-			"component": "upload",
-			"node":      nodeName,
-			"upload_id": uploadID,
-			"error":     err.Error(),
-		}).Error("Failed to update upload progress")
-		return fmt.Errorf("failed to update upload progress: %w", err)
+			"component":        "upload",
+			"node":             nodeName,
+			"upload_id":        uploadID,
+			"progress_percent": progressPercent,
+			"chunks_completed": chunksCompleted,
+			"chunks_total":     chunksTotal,
+		}).Debug("Upload progress updated")
 	}
 
 	return nil
@@ -505,15 +547,61 @@ func (m *Manager) CreateUploadRecord(ctx context.Context, nodeName, protocol, no
 		return existingUpload.ID, nil
 	}
 
+	// Extract started_at from protocol data if available, otherwise use current time
+	var startedAt time.Time
+	if startedAtStr, ok := protocolData["started_at"].(string); ok {
+		if parsedTime, err := time.Parse(time.RFC3339, startedAtStr); err == nil {
+			startedAt = parsedTime
+		} else {
+			startedAt = time.Now()
+		}
+	} else {
+		startedAt = time.Now()
+	}
+
+	// Extract progress data from protocol data
+	var progressPercent *float64
+	var chunksCompleted *int
+	var chunksTotal *int
+	var lastProgressCheck *time.Time
+
+	if percentStr, ok := protocolData["progress_percent"].(string); ok {
+		if percent, err := parseFloat(percentStr); err == nil {
+			progressPercent = &percent
+		}
+	}
+
+	if completedStr, ok := protocolData["chunks_completed"].(string); ok {
+		if completed, err := parseInt(completedStr); err == nil {
+			chunksCompleted = &completed
+		}
+	}
+
+	if totalStr, ok := protocolData["chunks_total"].(string); ok {
+		if total, err := parseInt(totalStr); err == nil {
+			chunksTotal = &total
+		}
+	}
+
+	// Set last progress check to now if we have progress data
+	if progressPercent != nil || chunksCompleted != nil {
+		now := time.Now()
+		lastProgressCheck = &now
+	}
+
 	// No existing upload, create a new record
 	upload := Upload{
-		NodeName:     nodeName,
-		Protocol:     protocol,
-		NodeType:     nodeType,
-		StartedAt:    time.Now(),
-		Status:       "running",
-		TriggerType:  triggerType,
-		ProtocolData: JSONB(protocolData),
+		NodeName:          nodeName,
+		Protocol:          protocol,
+		NodeType:          nodeType,
+		StartedAt:         startedAt,
+		Status:            "running",
+		TriggerType:       triggerType,
+		ProtocolData:      JSONB(protocolData),
+		ProgressPercent:   progressPercent,
+		ChunksCompleted:   chunksCompleted,
+		ChunksTotal:       chunksTotal,
+		LastProgressCheck: lastProgressCheck,
 	}
 
 	uploadID, err := m.db.CreateUpload(ctx, upload)
@@ -527,9 +615,13 @@ func (m *Manager) CreateUploadRecord(ctx context.Context, nodeName, protocol, no
 	}
 
 	m.logger.WithFields(logrus.Fields{
-		"component": "upload",
-		"node":      nodeName,
-		"upload_id": uploadID,
+		"component":        "upload",
+		"node":             nodeName,
+		"upload_id":        uploadID,
+		"started_at":       startedAt,
+		"progress_percent": progressPercent,
+		"chunks_completed": chunksCompleted,
+		"chunks_total":     chunksTotal,
 	}).Info("Created new upload record")
 
 	return uploadID, nil

@@ -119,6 +119,16 @@ func (a *DatabaseAdapter) GetLatestCompletedUploadForNode(ctx context.Context, n
 	}, nil
 }
 
+// UpdateUploadProgress adapts to database.DB method
+func (a *DatabaseAdapter) UpdateUploadProgress(ctx context.Context, uploadID int64, status string, progressPercent *float64, chunksCompleted *int, chunksTotal *int, lastProgressCheck *time.Time) error {
+	return a.db.UpdateUploadProgress(ctx, uploadID, status, progressPercent, chunksCompleted, chunksTotal, lastProgressCheck)
+}
+
+// UpdateUploadCompletion adapts to database.DB method
+func (a *DatabaseAdapter) UpdateUploadCompletion(ctx context.Context, uploadID int64, completedAt time.Time, status string, totalChunks *int, completionMessage *string, errorMessage *string) error {
+	return a.db.UpdateUploadCompletion(ctx, uploadID, completedAt, status, totalChunks, completionMessage, errorMessage)
+}
+
 func main() {
 	// Parse command-line flags
 	configPath := flag.String("config", "/etc/snapperd/config.yaml", "Path to configuration file")
@@ -291,7 +301,7 @@ func runDaemon(configPath string, consoleMode bool) int {
 	sched := scheduler.NewCronScheduler(log.Logger)
 
 	// Add global status update job (upload monitor)
-	monitorJob := scheduler.NewUploadMonitorJob(uploadMgr, db, cfg.Nodes, log.Logger)
+	monitorJob := scheduler.NewUploadMonitorJob(uploadMgr, db, protocolRegistry, cfg.Nodes, log.Logger)
 	if err := sched.AddJob(cfg.Schedule, monitorJob); err != nil {
 		log.WithFields(logrus.Fields{
 			"component": "main",

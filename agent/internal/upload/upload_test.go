@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -24,6 +25,8 @@ func (m *mockExecutor) Execute(ctx context.Context, command string, args ...stri
 type mockDatabase struct {
 	createUploadFunc            func(ctx context.Context, upload Upload) (int64, error)
 	updateUploadFunc            func(ctx context.Context, upload Upload) error
+	updateUploadProgressFunc    func(ctx context.Context, uploadID int64, status string, progressPercent *float64, chunksCompleted *int, chunksTotal *int, lastProgressCheck *time.Time) error
+	updateUploadCompletionFunc  func(ctx context.Context, uploadID int64, completedAt time.Time, status string, totalChunks *int, completionMessage *string, errorMessage *string) error
 	getRunningUploadForNodeFunc func(ctx context.Context, nodeName string) (*Upload, error)
 }
 
@@ -50,6 +53,20 @@ func (m *mockDatabase) GetRunningUploadForNode(ctx context.Context, nodeName str
 
 func (m *mockDatabase) GetLatestCompletedUploadForNode(ctx context.Context, nodeName string) (*Upload, error) {
 	return nil, nil
+}
+
+func (m *mockDatabase) UpdateUploadProgress(ctx context.Context, uploadID int64, status string, progressPercent *float64, chunksCompleted *int, chunksTotal *int, lastProgressCheck *time.Time) error {
+	if m.updateUploadProgressFunc != nil {
+		return m.updateUploadProgressFunc(ctx, uploadID, status, progressPercent, chunksCompleted, chunksTotal, lastProgressCheck)
+	}
+	return nil
+}
+
+func (m *mockDatabase) UpdateUploadCompletion(ctx context.Context, uploadID int64, completedAt time.Time, status string, totalChunks *int, completionMessage *string, errorMessage *string) error {
+	if m.updateUploadCompletionFunc != nil {
+		return m.updateUploadCompletionFunc(ctx, uploadID, completedAt, status, totalChunks, completionMessage, errorMessage)
+	}
+	return nil
 }
 
 func TestCheckUploadStatus_BVOutput(t *testing.T) {
@@ -381,7 +398,11 @@ progress:         100.00% (3248/3248 completed)`, "", nil
 }
 
 func TestMonitorUploadProgress_UpdatesProgress(t *testing.T) {
-	var capturedUpload Upload
+	var capturedUploadID int64
+	var capturedStatus string
+	var capturedProgressPercent *float64
+	var capturedChunksCompleted *int
+	var capturedChunksTotal *int
 
 	executor := &mockExecutor{
 		executeFunc: func(ctx context.Context, command string, args ...string) (stdout, stderr string, err error) {
@@ -391,8 +412,12 @@ progress:         75.00% (2436/3248 uploading)`, "", nil
 	}
 
 	db := &mockDatabase{
-		updateUploadFunc: func(ctx context.Context, upload Upload) error {
-			capturedUpload = upload
+		updateUploadProgressFunc: func(ctx context.Context, uploadID int64, status string, progressPercent *float64, chunksCompleted *int, chunksTotal *int, lastProgressCheck *time.Time) error {
+			capturedUploadID = uploadID
+			capturedStatus = status
+			capturedProgressPercent = progressPercent
+			capturedChunksCompleted = chunksCompleted
+			capturedChunksTotal = chunksTotal
 			return nil
 		},
 	}
@@ -404,25 +429,31 @@ progress:         75.00% (2436/3248 uploading)`, "", nil
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	if capturedUpload.ID != 999 {
-		t.Errorf("Expected upload ID 999, got %d", capturedUpload.ID)
+	if capturedUploadID != 999 {
+		t.Errorf("Expected upload ID 999, got %d", capturedUploadID)
 	}
 
-	if capturedUpload.ProgressPercent == nil || *capturedUpload.ProgressPercent != 75.0 {
-		t.Errorf("Expected progress percent 75.0, got %v", capturedUpload.ProgressPercent)
+	if capturedStatus != "running" {
+		t.Errorf("Expected status 'running', got %s", capturedStatus)
 	}
 
-	if capturedUpload.ChunksCompleted == nil || *capturedUpload.ChunksCompleted != 2436 {
-		t.Errorf("Expected chunks completed 2436, got %v", capturedUpload.ChunksCompleted)
+	if capturedProgressPercent == nil || *capturedProgressPercent != 75.0 {
+		t.Errorf("Expected progress percent 75.0, got %v", capturedProgressPercent)
 	}
 
-	if capturedUpload.ChunksTotal == nil || *capturedUpload.ChunksTotal != 3248 {
-		t.Errorf("Expected chunks total 3248, got %v", capturedUpload.ChunksTotal)
+	if capturedChunksCompleted == nil || *capturedChunksCompleted != 2436 {
+		t.Errorf("Expected chunks completed 2436, got %v", capturedChunksCompleted)
+	}
+
+	if capturedChunksTotal == nil || *capturedChunksTotal != 3248 {
+		t.Errorf("Expected chunks total 3248, got %v", capturedChunksTotal)
 	}
 }
 
 func TestMonitorUploadProgress_UpdatesOnCompletion(t *testing.T) {
-	var capturedUpload Upload
+	var capturedUploadID int64
+	var capturedStatus string
+	var capturedCompletedAt time.Time
 
 	executor := &mockExecutor{
 		executeFunc: func(ctx context.Context, command string, args ...string) (stdout, stderr string, err error) {
@@ -432,8 +463,10 @@ progress:         100.00% (3248/3248 completed)`, "", nil
 	}
 
 	db := &mockDatabase{
-		updateUploadFunc: func(ctx context.Context, upload Upload) error {
-			capturedUpload = upload
+		updateUploadCompletionFunc: func(ctx context.Context, uploadID int64, completedAt time.Time, status string, totalChunks *int, completionMessage *string, errorMessage *string) error {
+			capturedUploadID = uploadID
+			capturedStatus = status
+			capturedCompletedAt = completedAt
 			return nil
 		},
 	}
@@ -445,15 +478,15 @@ progress:         100.00% (3248/3248 completed)`, "", nil
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	if capturedUpload.ID != 888 {
-		t.Errorf("Expected upload ID 888, got %d", capturedUpload.ID)
+	if capturedUploadID != 888 {
+		t.Errorf("Expected upload ID 888, got %d", capturedUploadID)
 	}
 
-	if capturedUpload.Status != "completed" {
-		t.Errorf("Expected status 'completed', got %q", capturedUpload.Status)
+	if capturedStatus != "completed" {
+		t.Errorf("Expected status 'completed', got %q", capturedStatus)
 	}
 
-	if capturedUpload.CompletedAt == nil {
+	if capturedCompletedAt.IsZero() {
 		t.Error("Expected CompletedAt to be set")
 	}
 }
@@ -497,7 +530,8 @@ func TestCheckUploadStatus_ErrorHandling(t *testing.T) {
 
 func TestMonitorUploadProgress_ContinuesOnRunning(t *testing.T) {
 	var progressStored bool
-	var storedUpload Upload
+	var capturedUploadID int64
+	var capturedProgressPercent *float64
 
 	executor := &mockExecutor{
 		executeFunc: func(ctx context.Context, command string, args ...string) (stdout, stderr string, err error) {
@@ -507,9 +541,10 @@ progress:         50.00% (1624/3248 uploading)`, "", nil
 	}
 
 	db := &mockDatabase{
-		updateUploadFunc: func(ctx context.Context, upload Upload) error {
+		updateUploadProgressFunc: func(ctx context.Context, uploadID int64, status string, progressPercent *float64, chunksCompleted *int, chunksTotal *int, lastProgressCheck *time.Time) error {
 			progressStored = true
-			storedUpload = upload
+			capturedUploadID = uploadID
+			capturedProgressPercent = progressPercent
 			return nil
 		},
 	}
@@ -522,15 +557,15 @@ progress:         50.00% (1624/3248 uploading)`, "", nil
 	}
 
 	if !progressStored {
-		t.Error("Expected UpdateUpload to be called for running upload")
+		t.Error("Expected UpdateUploadProgress to be called for running upload")
 	}
 
-	if storedUpload.ID != 777 {
-		t.Errorf("Expected upload ID 777, got %d", storedUpload.ID)
+	if capturedUploadID != 777 {
+		t.Errorf("Expected upload ID 777, got %d", capturedUploadID)
 	}
 
-	if storedUpload.ProgressPercent == nil || *storedUpload.ProgressPercent != 50.0 {
-		t.Errorf("Expected progress percent 50.0, got %v", storedUpload.ProgressPercent)
+	if capturedProgressPercent == nil || *capturedProgressPercent != 50.0 {
+		t.Errorf("Expected progress percent 50.0, got %v", capturedProgressPercent)
 	}
 }
 
