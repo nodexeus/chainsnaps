@@ -26,7 +26,7 @@ func (m *mockNotificationValidator) IsRegistered(name string) bool {
 func TestProtocolValidation(t *testing.T) {
 	// Create a temporary config file
 	configContent := `
-schedule: "* * * * *"
+schedule: "0 * * * * *"
 database:
   host: localhost
   port: 5432
@@ -38,7 +38,7 @@ nodes:
   test-node:
     protocol: ethereum
     type: archive
-    schedule: "0 */6 * * *"
+    schedule: "0 0 */6 * * *"
     url: http://localhost:8545
 `
 
@@ -84,7 +84,7 @@ nodes:
 func TestNotificationValidation(t *testing.T) {
 	// Create a temporary config file with notifications
 	configContent := `
-schedule: "* * * * *"
+schedule: "0 * * * * *"
 notifications:
   failure: true
   skip: false
@@ -102,7 +102,7 @@ nodes:
   test-node:
     protocol: ethereum
     type: archive
-    schedule: "0 */6 * * *"
+    schedule: "0 0 */6 * * *"
     url: http://localhost:8545
 `
 

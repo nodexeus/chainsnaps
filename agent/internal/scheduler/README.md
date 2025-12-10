@@ -64,7 +64,7 @@ nodeJob := scheduler.NewNodeUploadJob(
     logger,
 )
 
-err := scheduler.AddJob("0 */6 * * *", nodeJob)
+err := scheduler.AddJob("0 0 */6 * * *", nodeJob)
 if err != nil {
     log.Fatalf("Failed to add job: %v", err)
 }
@@ -76,7 +76,7 @@ monitorJob := scheduler.NewUploadMonitorJob(
     logger,
 )
 
-err = scheduler.AddJob("* * * * *", monitorJob)
+err = scheduler.AddJob("0 * * * * *", monitorJob)
 if err != nil {
     log.Fatalf("Failed to add monitor job: %v", err)
 }
@@ -167,12 +167,12 @@ Jobs are configured via the daemon's YAML configuration:
 
 ```yaml
 # Global schedule for status updates
-schedule: "* * * * *"
+schedule: "0 * * * * *"
 
 # Node-specific schedules
 nodes:
   ethereum-mainnet:
-    schedule: "0 */6 * * *"  # Every 6 hours
+    schedule: "0 0 */6 * * *"  # Every 6 hours
     protocol: ethereum
     # ... other config
 ```

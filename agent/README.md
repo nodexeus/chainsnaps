@@ -139,9 +139,10 @@ The daemon is configured via a YAML file (default: `/etc/snapd/config.yaml`). Se
 
 ```yaml
 # Cron expression for status checks (default: every minute)
+# Format: "second minute hour day month weekday" (6 fields)
 # This controls how often the daemon checks upload status and progress
 # NOT when uploads are initiated (that's per-node)
-schedule: "* * * * *"
+schedule: "0 * * * * *"
 ```
 
 **Important**: The global schedule is for monitoring only. Each node must have its own upload schedule.
@@ -181,7 +182,7 @@ nodes:
     protocol: ethereum           # Protocol type (REQUIRED)
     type: archive               # Node type for metadata (optional)
     url: http://localhost:8545  # Base URL (REQUIRED)
-    schedule: "0 */6 * * *"     # Upload schedule (REQUIRED)
+    schedule: "0 0 */6 * * *"     # Upload schedule (REQUIRED)
     
     # Optional: Per-node notification override
     notifications:
@@ -198,7 +199,25 @@ nodes:
   - Arbitrum: Uses `url` directly
 - `schedule`: **REQUIRED** - Controls when uploads are initiated for this node
   - Must be less frequent than global schedule (hours/days, not minutes)
-  - Never use `"* * * * *"` for node schedules
+  - Never use `"0 * * * * *"` for node schedules
+
+### Cron Schedule Format
+
+The daemon uses a **6-field cron format** with seconds:
+
+```
+Format: "second minute hour day month weekday"
+Fields:  0-59   0-59   0-23  1-31  1-12   0-6
+```
+
+**Examples**:
+- `"0 * * * * *"` - Every minute at 0 seconds
+- `"0 0 */6 * * *"` - Every 6 hours at the top of the hour
+- `"0 0 0 * * *"` - Daily at midnight
+- `"0 0 0 * * 1-5"` - Weekdays at midnight
+- `"30 */5 * * * *"` - Every 5 minutes at 30 seconds
+
+**Important**: This is different from standard 5-field cron. Always include the seconds field.
 
 ### Environment Variables
 

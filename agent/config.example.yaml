@@ -5,6 +5,10 @@
 # Snapshot Daemon (snapd). Copy this file to /etc/snapd/config.yaml
 # and customize for your environment.
 #
+# IMPORTANT: This daemon uses 6-field cron format with seconds:
+# Format: "second minute hour day month weekday"
+# Example: "0 * * * * *" = every minute at 0 seconds
+#
 # For more information, see: agent/README.md
 # ============================================================================
 
@@ -12,19 +16,20 @@
 # Global Schedule
 # ----------------------------------------------------------------------------
 # Cron expression for status update checks across all nodes
-# Format: "minute hour day month weekday"
-# Default: "* * * * *" (every minute)
+# Format: "second minute hour day month weekday" (6 fields)
+# Default: "0 * * * * *" (every minute at 0 seconds)
 #
 # This schedule controls how often the daemon checks upload status and progress.
 # It does NOT control when uploads are initiated - that's per-node.
 #
 # Examples:
-#   "* * * * *"      - Every minute (recommended)
-#   "*/5 * * * *"    - Every 5 minutes
+#   "0 * * * * *"      - Every minute (recommended)
+#   "0 */5 * * * *"    - Every 5 minutes
+#   "30 * * * * *"     - Every minute at 30 seconds
 #
 # Note: Keep this frequent (every minute) for responsive monitoring.
 # Upload schedules are configured per-node (required field).
-schedule: "* * * * *"
+schedule: "0 * * * * *"
 
 # ----------------------------------------------------------------------------
 # Global Notification Defaults
@@ -117,7 +122,7 @@ nodes:
     protocol: ethereum           # Protocol module to use
     type: archive               # Node type (metadata only)
     url: http://localhost:8545  # Base URL (protocol builds specific endpoints)
-    schedule: "0 */6 * * *"     # REQUIRED: Upload every 6 hours
+    schedule: "0 0 */6 * * *"   # REQUIRED: Upload every 6 hours
     
     # Per-node notification override (optional)
     # Completely replaces global notification settings for this node
@@ -140,7 +145,7 @@ nodes:
     protocol: arbitrum
     type: archive
     url: http://localhost:8547  # Base URL for Arbitrum node
-    schedule: "0 */12 * * *"    # REQUIRED: Upload every 12 hours
+    schedule: "0 0 */12 * * *"  # REQUIRED: Upload every 12 hours
     # No notifications section = uses global notification settings
 
   # -------------------------------------------------------------------------
@@ -151,7 +156,7 @@ nodes:
     protocol: ethereum
     type: full
     url: http://localhost:8548  # Protocol module will append /beacon as needed
-    schedule: "0 0 * * *"       # REQUIRED: Upload daily at midnight
+    schedule: "0 0 0 * * *"     # REQUIRED: Upload daily at midnight
 
   # -------------------------------------------------------------------------
   # Additional Node Examples
@@ -162,27 +167,28 @@ nodes:
   #   protocol: ethereum
   #   type: archive
   #   url: http://localhost:8549
-  #   schedule: "0 0 * * *"     # REQUIRED: Daily at midnight
+  #   schedule: "0 0 0 * * *"   # REQUIRED: Daily at midnight
   
   # arbitrum-nova:
   #   protocol: arbitrum
   #   type: full
   #   url: http://localhost:8550
-  #   schedule: "0 */8 * * *"   # REQUIRED: Every 8 hours
+  #   schedule: "0 0 */8 * * *" # REQUIRED: Every 8 hours
   
   # ethereum-with-different-ports:
   #   protocol: ethereum
   #   type: archive
   #   url: http://localhost:9000  # RPC on 9000, beacon will be 9000/beacon
-  #   schedule: "0 */6 * * *"     # REQUIRED: Every 6 hours
+  #   schedule: "0 0 */6 * * *"   # REQUIRED: Every 6 hours
 
 # ============================================================================
 # Configuration Notes
 # ============================================================================
 #
 # 1. Schedule Format:
-#    Cron expressions use 5 fields: minute hour day month weekday
-#    Use https://crontab.guru/ to validate expressions
+#    Cron expressions use 6 fields: second minute hour day month weekday
+#    Examples: "0 * * * * *" (every minute), "0 0 */6 * * *" (every 6 hours)
+#    Note: This is different from standard 5-field cron format
 #
 # 2. Notification Inheritance:
 #    - Nodes without a notifications section use global settings

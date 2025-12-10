@@ -12,7 +12,7 @@ func TestLoadConfig(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
 	configContent := `
-schedule: "*/5 * * * *"
+schedule: "0 */5 * * * *"
 notifications:
   failure: true
   skip: false
@@ -30,12 +30,12 @@ nodes:
   ethereum-mainnet:
     protocol: ethereum
     type: archive
-    schedule: "0 */6 * * *"
+    schedule: "0 0 */6 * * *"
     url: http://localhost:8545
   arbitrum-one:
     protocol: arbitrum
     type: archive
-    schedule: "0 */12 * * *"
+    schedule: "0 0 */12 * * *"
     url: http://localhost:8547
 `
 
@@ -49,8 +49,8 @@ nodes:
 	}
 
 	// Verify global schedule
-	if config.Schedule != "*/5 * * * *" {
-		t.Errorf("Expected schedule '*/5 * * * *', got '%s'", config.Schedule)
+	if config.Schedule != "0 */5 * * * *" {
+		t.Errorf("Expected schedule '0 */5 * * * *', got '%s'", config.Schedule)
 	}
 
 	// Verify database config
@@ -82,7 +82,7 @@ func TestLoadConfigWithDefaults(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
-	// Config without global schedule (should default to "* * * * *")
+	// Config without global schedule (should default to "0 * * * * *")
 	configContent := `
 database:
   host: localhost
@@ -94,7 +94,7 @@ nodes:
   test-node:
     protocol: ethereum
     type: archive
-    schedule: "0 */6 * * *"
+    schedule: "0 0 */6 * * *"
     url: http://localhost:8545
 `
 
@@ -108,8 +108,8 @@ nodes:
 	}
 
 	// Verify default schedule
-	if config.Schedule != "* * * * *" {
-		t.Errorf("Expected default schedule '* * * * *', got '%s'", config.Schedule)
+	if config.Schedule != "0 * * * * *" {
+		t.Errorf("Expected default schedule '0 * * * * *', got '%s'", config.Schedule)
 	}
 }
 
@@ -145,14 +145,14 @@ func TestValidateCronSchedule(t *testing.T) {
 		schedule string
 		wantErr  bool
 	}{
-		{"valid every minute", "* * * * *", false},
-		{"valid every 5 minutes", "*/5 * * * *", false},
-		{"valid specific time", "0 */6 * * *", false},
-		{"valid complex", "0 0 * * 1-5", false},
+		{"valid every minute", "0 * * * * *", false},
+		{"valid every 5 minutes", "0 */5 * * * *", false},
+		{"valid specific time", "0 0 */6 * * *", false},
+		{"valid complex", "0 0 0 * * 1-5", false},
 		{"invalid format", "invalid", true},
-		{"invalid too many fields", "* * * * * *", true},
+		{"invalid too many fields", "0 * * * * * *", true},
 		{"invalid too few fields", "* * *", true},
-		{"invalid range", "60 * * * *", true},
+		{"invalid range", "60 * * * * *", true},
 	}
 
 	for _, tt := range tests {
@@ -242,7 +242,7 @@ func TestNodeConfigValidate(t *testing.T) {
 				Protocol: "ethereum",
 				Type:     "archive",
 				URL:      "http://localhost:8545",
-				Schedule: "0 */6 * * *",
+				Schedule: "0 0 */6 * * *",
 			},
 			wantErr: false,
 		},
@@ -251,7 +251,7 @@ func TestNodeConfigValidate(t *testing.T) {
 			config: NodeConfig{
 				Type:     "archive",
 				URL:      "http://localhost:8545",
-				Schedule: "0 */6 * * *",
+				Schedule: "0 0 */6 * * *",
 			},
 			wantErr: true,
 		},
@@ -260,7 +260,7 @@ func TestNodeConfigValidate(t *testing.T) {
 			config: NodeConfig{
 				Protocol: "ethereum",
 				Type:     "archive",
-				Schedule: "0 */6 * * *",
+				Schedule: "0 0 */6 * * *",
 			},
 			wantErr: true,
 		},
@@ -287,7 +287,7 @@ func TestNodeConfigValidate(t *testing.T) {
 			config: NodeConfig{
 				Protocol: "ethereum",
 				URL:      "http://localhost:8545",
-				Schedule: "0 */6 * * *",
+				Schedule: "0 0 */6 * * *",
 			},
 			wantErr: false,
 		},
@@ -358,30 +358,30 @@ func TestNotificationConfigValidate(t *testing.T) {
 
 func TestGetNodeSchedule(t *testing.T) {
 	config := &Config{
-		Schedule: "* * * * *",
+		Schedule: "0 * * * * *",
 		Nodes: map[string]NodeConfig{
 			"node-with-schedule": {
 				Protocol: "ethereum",
 				URL:      "http://localhost:8545",
-				Schedule: "0 */6 * * *",
+				Schedule: "0 0 */6 * * *",
 			},
 			"another-node": {
 				Protocol: "arbitrum",
 				URL:      "http://localhost:8547",
-				Schedule: "0 */12 * * *",
+				Schedule: "0 0 */12 * * *",
 			},
 		},
 	}
 
 	// Test node with schedule
 	schedule := config.GetNodeSchedule("node-with-schedule")
-	if schedule != "0 */6 * * *" {
+	if schedule != "0 0 */6 * * *" {
 		t.Errorf("Expected '0 */6 * * *', got '%s'", schedule)
 	}
 
 	// Test another node with different schedule
 	schedule = config.GetNodeSchedule("another-node")
-	if schedule != "0 */12 * * *" {
+	if schedule != "0 0 */12 * * *" {
 		t.Errorf("Expected '0 */12 * * *', got '%s'", schedule)
 	}
 
@@ -417,13 +417,13 @@ func TestGetNodeNotifications(t *testing.T) {
 			"node-with-notif": {
 				Protocol:      "ethereum",
 				URL:           "http://localhost:8545",
-				Schedule:      "0 */6 * * *",
+				Schedule:      "0 0 */6 * * *",
 				Notifications: nodeNotif,
 			},
 			"node-without-notif": {
 				Protocol: "arbitrum",
 				URL:      "http://localhost:8547",
-				Schedule: "0 */12 * * *",
+				Schedule: "0 0 */12 * * *",
 			},
 		},
 	}
@@ -455,7 +455,7 @@ func TestGetNodeNotifications(t *testing.T) {
 
 func TestConfigValidateNoNodes(t *testing.T) {
 	config := &Config{
-		Schedule: "* * * * *",
+		Schedule: "0 * * * * *",
 		Database: DatabaseConfig{
 			Host:     "localhost",
 			Port:     5432,
@@ -484,7 +484,7 @@ func TestConfigValidateInvalidGlobalSchedule(t *testing.T) {
 			"test": {
 				Protocol: "ethereum",
 				URL:      "http://localhost:8545",
-				Schedule: "0 */6 * * *",
+				Schedule: "0 0 */6 * * *",
 			},
 		},
 	}

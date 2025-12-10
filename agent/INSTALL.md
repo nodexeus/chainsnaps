@@ -140,13 +140,14 @@ sudo nano /etc/snapd/config.yaml
 4. **Notifications**: Configure webhook URLs (optional)
 
 **Important**: 
-- Global schedule is for status checks only (keep at `"* * * * *"`)
+- Uses 6-field cron format: `"second minute hour day month weekday"`
+- Global schedule is for status checks only (keep at `"0 * * * * *"`)
 - Each node requires its own upload schedule (hours/days, never minutes)
 
 Example minimal configuration:
 
 ```yaml
-schedule: "* * * * *"
+schedule: "0 * * * * *"
 
 database:
   host: localhost
@@ -161,7 +162,7 @@ nodes:
     protocol: ethereum
     type: archive
     url: http://localhost:8545
-    schedule: "0 */6 * * *"
+    schedule: "0 0 */6 * * *"
 ```
 
 ### Step 3: Set Environment Variables
@@ -216,8 +217,23 @@ CREATE DATABASE snapd;
 -- Create user with password
 CREATE USER snapd WITH PASSWORD 'your_secure_password';
 
--- Grant privileges
+-- Grant database privileges
 GRANT ALL PRIVILEGES ON DATABASE snapd TO snapd;
+
+-- Connect to the snapd database to set schema permissions
+\c snapd
+
+-- Grant schema permissions (required for table creation)
+GRANT ALL ON SCHEMA public TO snapd;
+GRANT CREATE ON SCHEMA public TO snapd;
+
+-- Grant privileges on existing tables and sequences
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO snapd;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO snapd;
+
+-- Set default privileges for future objects
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO snapd;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO snapd;
 
 -- Exit
 \q
@@ -595,6 +611,39 @@ sudo systemctl status postgresql
 
 # Verify credentials in /etc/snapd/environment
 sudo cat /etc/snapd/environment | grep DB_PASSWORD
+```
+
+### Issue: "permission denied for schema public" during migration
+
+This error occurs when the snapd user doesn't have permission to create tables.
+
+**Solution**:
+
+**Option 1: Use the provided script (easiest)**:
+```bash
+# Run the permission fix script
+./agent/fix-db-permissions.sh
+
+# Restart the daemon
+sudo systemctl restart snapd
+```
+
+**Option 2: Manual fix**:
+```bash
+# Quick fix - run as postgres superuser
+sudo -u postgres psql -d snapd -c "
+GRANT ALL ON SCHEMA public TO snapd;
+GRANT CREATE ON SCHEMA public TO snapd;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO snapd;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO snapd;"
+
+# Restart the daemon
+sudo systemctl restart snapd
+```
+
+**Alternative solution** - Make snapd the database owner:
+```bash
+sudo -u postgres psql -c "ALTER DATABASE snapd OWNER TO snapd;"
 ```
 
 ### Issue: Configuration file not found

@@ -112,7 +112,7 @@ func TestLoadConfig_WithNotificationValidation(t *testing.T) {
 
 	// Config with unregistered notification type
 	configContent := `
-schedule: "* * * * *"
+schedule: "0 * * * * *"
 notifications:
   failure: true
   skip: false
@@ -129,7 +129,7 @@ nodes:
   test-node:
     protocol: ethereum
     type: archive
-    schedule: "0 */6 * * *"
+    schedule: "0 0 */6 * * *"
     url: http://localhost:8545
 `
 
@@ -158,7 +158,7 @@ func TestLoadConfig_WithNodeNotificationValidation(t *testing.T) {
 
 	// Config with unregistered notification type in node config
 	configContent := `
-schedule: "* * * * *"
+schedule: "0 * * * * *"
 database:
   host: localhost
   port: 5432
@@ -169,7 +169,7 @@ nodes:
   test-node:
     protocol: ethereum
     type: archive
-    schedule: "0 */6 * * *"
+    schedule: "0 0 */6 * * *"
     url: http://localhost:8545
     notifications:
       failure: true
@@ -205,7 +205,7 @@ func TestLoadConfig_ValidNotificationTypes(t *testing.T) {
 
 	// Config with valid notification types
 	configContent := `
-schedule: "* * * * *"
+schedule: "0 * * * * *"
 notifications:
   failure: true
   skip: false
@@ -222,7 +222,7 @@ nodes:
   test-node:
     protocol: ethereum
     type: archive
-    schedule: "0 */6 * * *"
+    schedule: "0 0 */6 * * *"
     url: http://localhost:8545
     notifications:
       failure: false
@@ -270,7 +270,7 @@ func TestLoadConfig_MultipleNotificationTypes(t *testing.T) {
 
 	// Config with multiple notification types
 	configContent := `
-schedule: "* * * * *"
+schedule: "0 * * * * *"
 notifications:
   failure: true
   skip: false
@@ -289,7 +289,7 @@ nodes:
   test-node:
     protocol: ethereum
     type: archive
-    schedule: "0 */6 * * *"
+    schedule: "0 0 */6 * * *"
     url: http://localhost:8545
     notifications:
       failure: true

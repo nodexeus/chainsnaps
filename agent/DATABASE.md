@@ -14,6 +14,22 @@ sudo -u postgres psql
 CREATE DATABASE snapd;
 CREATE USER snapd WITH PASSWORD 'your_secure_password';
 GRANT ALL PRIVILEGES ON DATABASE snapd TO snapd;
+
+-- Connect to the snapd database to set schema permissions
+\c snapd
+
+-- Grant schema permissions
+GRANT ALL ON SCHEMA public TO snapd;
+GRANT CREATE ON SCHEMA public TO snapd;
+
+-- Grant privileges on existing tables and sequences
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO snapd;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO snapd;
+
+-- Set default privileges for future objects
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO snapd;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO snapd;
+
 \q
 ```
 
@@ -262,32 +278,89 @@ sudo journalctl -u postgresql -n 50
 
 ### Permission Issues
 
-```sql
--- Grant all privileges on database
-GRANT ALL PRIVILEGES ON DATABASE snapd TO snapd;
+If you encounter "permission denied for schema public" errors:
 
--- Grant privileges on all tables
+```sql
+-- Connect as postgres superuser
+sudo -u postgres psql
+
+-- Connect to the snapd database
+\c snapd
+
+-- Grant schema permissions
+GRANT ALL ON SCHEMA public TO snapd;
+GRANT CREATE ON SCHEMA public TO snapd;
+GRANT USAGE ON SCHEMA public TO snapd;
+
+-- Grant privileges on all existing tables
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO snapd;
 
--- Grant privileges on sequences (for SERIAL columns)
+-- Grant privileges on all existing sequences (for SERIAL columns)
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO snapd;
+
+-- Set default privileges for future objects created by any user
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO snapd;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO snapd;
+
+-- If the above doesn't work, you may need to make snapd the owner of the database
+ALTER DATABASE snapd OWNER TO snapd;
+
+\q
+```
+
+**Alternative: Create database with snapd as owner**
+
+```sql
+-- As postgres superuser
+sudo -u postgres psql
+
+-- Drop existing database if needed
+DROP DATABASE IF EXISTS snapd;
+
+-- Create database with snapd as owner
+CREATE DATABASE snapd OWNER snapd;
+
+-- Grant connect privilege
+GRANT CONNECT ON DATABASE snapd TO snapd;
+
+\q
 ```
 
 ### Migration Failures
 
 If automatic migrations fail:
 
-1. Check daemon logs:
+1. **"permission denied for schema public" error:**
+   
+   **Quick fix using the provided script:**
+   ```bash
+   # Run the permission fix script
+   ./agent/fix-db-permissions.sh
+   
+   # Or specify custom database/user names
+   ./agent/fix-db-permissions.sh my_database my_user
+   ```
+   
+   **Manual fix - run as postgres superuser:**
+   ```bash
+   sudo -u postgres psql -d snapd -c "
+   GRANT ALL ON SCHEMA public TO snapd;
+   GRANT CREATE ON SCHEMA public TO snapd;
+   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO snapd;
+   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO snapd;"
+   ```
+
+2. Check daemon logs:
    ```bash
    sudo journalctl -u snapd | grep -i migration
    ```
 
-2. Manually apply schema:
+3. Manually apply schema:
    ```bash
    psql -h localhost -U snapd -d snapd -f agent/schema.sql
    ```
 
-3. Verify tables exist:
+4. Verify tables exist:
    ```bash
    psql -h localhost -U snapd -d snapd -c "\dt"
    ```

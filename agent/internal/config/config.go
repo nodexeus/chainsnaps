@@ -87,7 +87,7 @@ func LoadConfig(path string) (*Config, error) {
 
 	// Apply defaults
 	if config.Schedule == "" {
-		config.Schedule = "* * * * *" // Default to every minute
+		config.Schedule = "0 * * * * *" // Default to every minute (6-field format: second minute hour day month weekday)
 	}
 
 	// Validate configuration
@@ -203,8 +203,9 @@ func (n *NotificationConfig) Validate() error {
 }
 
 // validateCronSchedule validates a cron schedule expression
+// Uses 6-field format: second minute hour day month weekday
 func validateCronSchedule(schedule string) error {
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	_, err := parser.Parse(schedule)
 	if err != nil {
 		return fmt.Errorf("invalid cron schedule '%s': %w", schedule, err)
