@@ -435,8 +435,13 @@ func handleStatusCommand(configPath string, consoleMode bool) int {
 		fmt.Printf("  Started: %s\n", upload.StartedAt.Format(time.RFC3339))
 		fmt.Printf("  Duration: %s\n", time.Since(upload.StartedAt).Round(time.Second))
 
-		// Display progress if available
-		if upload.Progress != nil {
+		// Display progress using structured columns (preferred) or fallback to JSONB
+		if upload.ProgressPercent != nil && upload.ChunksCompleted != nil && upload.ChunksTotal != nil {
+			fmt.Printf("  Progress: %.2f%% (%d/%d multi-client upload (in progress clients))\n",
+				*upload.ProgressPercent, *upload.ChunksCompleted, *upload.ChunksTotal)
+			fmt.Printf("  Percent: %.2f%%\n", *upload.ProgressPercent)
+		} else if upload.Progress != nil {
+			// Fallback to JSONB parsing for backwards compatibility
 			if progress, ok := upload.Progress["progress"]; ok {
 				fmt.Printf("  Progress: %v\n", progress)
 			}

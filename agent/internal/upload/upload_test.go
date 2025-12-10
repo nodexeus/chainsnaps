@@ -384,8 +384,8 @@ progress:         100.00% (3248/3248 completed)`, "", nil
 	}
 }
 
-func TestMonitorUploadProgress_StoresProgress(t *testing.T) {
-	var capturedProgress UploadProgress
+func TestMonitorUploadProgress_UpdatesProgress(t *testing.T) {
+	var capturedUpload Upload
 
 	executor := &mockExecutor{
 		executeFunc: func(ctx context.Context, command string, args ...string) (stdout, stderr string, err error) {
@@ -395,8 +395,8 @@ progress:         75.00% (2436/3248 uploading)`, "", nil
 	}
 
 	db := &mockDatabase{
-		storeUploadProgressFunc: func(ctx context.Context, progress UploadProgress) error {
-			capturedProgress = progress
+		updateUploadFunc: func(ctx context.Context, upload Upload) error {
+			capturedUpload = upload
 			return nil
 		},
 	}
@@ -408,16 +408,21 @@ progress:         75.00% (2436/3248 uploading)`, "", nil
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	if capturedProgress.UploadID != 999 {
-		t.Errorf("Expected upload ID 999, got %d", capturedProgress.UploadID)
+	if capturedUpload.ID != 999 {
+		t.Errorf("Expected upload ID 999, got %d", capturedUpload.ID)
 	}
 
-	if capturedProgress.CheckedAt.IsZero() {
-		t.Error("Expected CheckedAt to be set")
+	if capturedUpload.Progress == nil {
+		t.Error("Expected Progress to be set")
 	}
 
-	if capturedProgress.ProgressData == nil {
-		t.Error("Expected ProgressData to be set")
+	// Should not be marked as completed since it's still running
+	if capturedUpload.Status == "completed" {
+		t.Error("Expected upload not to be marked as completed when still running")
+	}
+
+	if capturedUpload.CompletedAt != nil {
+		t.Error("Expected CompletedAt to be nil when upload is still running")
 	}
 }
 
@@ -500,6 +505,7 @@ func TestCheckUploadStatus_ErrorHandling(t *testing.T) {
 
 func TestMonitorUploadProgress_ContinuesOnRunning(t *testing.T) {
 	var updateCalled bool
+	var updatedUpload Upload
 
 	executor := &mockExecutor{
 		executeFunc: func(ctx context.Context, command string, args ...string) (stdout, stderr string, err error) {
@@ -509,11 +515,9 @@ progress:         50.00% (1624/3248 uploading)`, "", nil
 	}
 
 	db := &mockDatabase{
-		storeUploadProgressFunc: func(ctx context.Context, progress UploadProgress) error {
-			return nil
-		},
 		updateUploadFunc: func(ctx context.Context, upload Upload) error {
 			updateCalled = true
+			updatedUpload = upload
 			return nil
 		},
 	}
@@ -525,8 +529,17 @@ progress:         50.00% (1624/3248 uploading)`, "", nil
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	if updateCalled {
-		t.Error("Expected UpdateUpload not to be called when upload is still running")
+	if !updateCalled {
+		t.Error("Expected UpdateUpload to be called to update progress even when upload is still running")
+	}
+
+	// Should update progress but not mark as completed
+	if updatedUpload.Status == "completed" {
+		t.Error("Expected upload not to be marked as completed when still running")
+	}
+
+	if updatedUpload.CompletedAt != nil {
+		t.Error("Expected CompletedAt to be nil when upload is still running")
 	}
 }
 

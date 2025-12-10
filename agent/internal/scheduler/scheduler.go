@@ -3,6 +3,8 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -451,12 +453,36 @@ func (j *UploadMonitorJob) Run(ctx context.Context) error {
 						dbProgress[k] = v
 					}
 
+					// Extract structured progress data
+					var progressPercent *float64
+					var chunksCompleted *int
+					var chunksTotal *int
+
+					if percentStr, ok := status.Progress["progress_percent"].(string); ok {
+						if percent, err := parseFloat(percentStr); err == nil {
+							progressPercent = &percent
+						}
+					}
+					if completedStr, ok := status.Progress["chunks_completed"].(string); ok {
+						if completed, err := parseInt(completedStr); err == nil {
+							chunksCompleted = &completed
+						}
+					}
+					if totalStr, ok := status.Progress["chunks_total"].(string); ok {
+						if total, err := parseInt(totalStr); err == nil {
+							chunksTotal = &total
+						}
+					}
+
 					upload := database.Upload{
-						NodeName:    node,
-						StartedAt:   time.Now(),
-						Status:      "running",
-						Progress:    dbProgress,
-						TriggerType: "external",
+						NodeName:        node,
+						StartedAt:       time.Now(),
+						Status:          "running",
+						Progress:        dbProgress,
+						ProgressPercent: progressPercent,
+						ChunksCompleted: chunksCompleted,
+						ChunksTotal:     chunksTotal,
+						TriggerType:     "external",
 					}
 
 					uploadID, err := j.db.CreateUpload(ctx, upload)
@@ -530,4 +556,26 @@ func (j *UploadMonitorJob) Run(ctx context.Context) error {
 	}).Debug("Comprehensive upload monitor job completed")
 
 	return nil
+}
+
+// parseFloat safely parses a string to float64
+func parseFloat(s string) (float64, error) {
+	// Remove any trailing characters like '%'
+	s = strings.TrimSpace(s)
+	s = strings.TrimSuffix(s, "%")
+
+	// Try to parse as float
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		return f, nil
+	}
+	return 0, fmt.Errorf("invalid float: %s", s)
+}
+
+// parseInt safely parses a string to int
+func parseInt(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if i, err := strconv.Atoi(s); err == nil {
+		return i, nil
+	}
+	return 0, fmt.Errorf("invalid int: %s", s)
 }

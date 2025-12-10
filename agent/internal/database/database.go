@@ -39,14 +39,17 @@ type NodeMetrics struct {
 
 // Upload represents an upload operation
 type Upload struct {
-	ID           int64      `db:"id"`
-	NodeName     string     `db:"node_name"`
-	StartedAt    time.Time  `db:"started_at"`
-	CompletedAt  *time.Time `db:"completed_at"`
-	Status       string     `db:"status"`
-	Progress     JSONB      `db:"progress"`
-	TriggerType  string     `db:"trigger_type"`
-	ErrorMessage *string    `db:"error_message"`
+	ID              int64      `db:"id"`
+	NodeName        string     `db:"node_name"`
+	StartedAt       time.Time  `db:"started_at"`
+	CompletedAt     *time.Time `db:"completed_at"`
+	Status          string     `db:"status"`
+	Progress        JSONB      `db:"progress"`
+	ProgressPercent *float64   `db:"progress_percent"`
+	ChunksCompleted *int       `db:"chunks_completed"`
+	ChunksTotal     *int       `db:"chunks_total"`
+	TriggerType     string     `db:"trigger_type"`
+	ErrorMessage    *string    `db:"error_message"`
 }
 
 // UploadProgress represents a progress check for an upload
@@ -108,9 +111,15 @@ func (db *DB) Migrate(ctx context.Context) error {
 			completed_at TIMESTAMP,
 			status VARCHAR(50) NOT NULL,
 			progress JSONB,
+			progress_percent DECIMAL(5,2),
+			chunks_completed INTEGER,
+			chunks_total INTEGER,
 			trigger_type VARCHAR(20) NOT NULL,
 			error_message TEXT
 		)`,
+		`ALTER TABLE uploads ADD COLUMN IF NOT EXISTS progress_percent DECIMAL(5,2)`,
+		`ALTER TABLE uploads ADD COLUMN IF NOT EXISTS chunks_completed INTEGER`,
+		`ALTER TABLE uploads ADD COLUMN IF NOT EXISTS chunks_total INTEGER`,
 		`CREATE INDEX IF NOT EXISTS idx_uploads_node_status 
 		 ON uploads (node_name, status)`,
 		`CREATE INDEX IF NOT EXISTS idx_uploads_started 
@@ -144,12 +153,12 @@ func (db *DB) StoreNodeMetrics(ctx context.Context, metrics NodeMetrics) error {
 
 // CreateUpload creates a new upload record
 func (db *DB) CreateUpload(ctx context.Context, upload Upload) (int64, error) {
-	query := `INSERT INTO uploads (node_name, started_at, status, progress, trigger_type)
-	          VALUES ($1, $2, $3, $4, $5)
+	query := `INSERT INTO uploads (node_name, started_at, status, progress, progress_percent, chunks_completed, chunks_total, trigger_type)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	          RETURNING id`
 
 	var id int64
-	err := db.queryRowWithRetry(ctx, query, &id, upload.NodeName, upload.StartedAt, upload.Status, upload.Progress, upload.TriggerType)
+	err := db.queryRowWithRetry(ctx, query, &id, upload.NodeName, upload.StartedAt, upload.Status, upload.Progress, upload.ProgressPercent, upload.ChunksCompleted, upload.ChunksTotal, upload.TriggerType)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create upload: %w", err)
 	}
@@ -160,15 +169,18 @@ func (db *DB) CreateUpload(ctx context.Context, upload Upload) (int64, error) {
 // UpdateUpload updates an existing upload record
 func (db *DB) UpdateUpload(ctx context.Context, upload Upload) error {
 	query := `UPDATE uploads 
-	          SET completed_at = $1, status = $2, progress = $3, error_message = $4
-	          WHERE id = $5`
+	          SET completed_at = $1, status = $2, progress = $3, progress_percent = $4, 
+	              chunks_completed = $5, chunks_total = $6, error_message = $7
+	          WHERE id = $8`
 
-	return db.execWithRetry(ctx, query, upload.CompletedAt, upload.Status, upload.Progress, upload.ErrorMessage, upload.ID)
+	return db.execWithRetry(ctx, query, upload.CompletedAt, upload.Status, upload.Progress,
+		upload.ProgressPercent, upload.ChunksCompleted, upload.ChunksTotal, upload.ErrorMessage, upload.ID)
 }
 
 // GetRunningUploads retrieves all currently running uploads
 func (db *DB) GetRunningUploads(ctx context.Context) ([]Upload, error) {
-	query := `SELECT id, node_name, started_at, completed_at, status, progress, trigger_type, error_message
+	query := `SELECT id, node_name, started_at, completed_at, status, progress, 
+	                 progress_percent, chunks_completed, chunks_total, trigger_type, error_message
 	          FROM uploads
 	          WHERE status = 'running'
 	          ORDER BY started_at DESC`
@@ -184,7 +196,8 @@ func (db *DB) GetRunningUploads(ctx context.Context) ([]Upload, error) {
 
 // GetRunningUploadForNode retrieves a running upload for a specific node
 func (db *DB) GetRunningUploadForNode(ctx context.Context, nodeName string) (*Upload, error) {
-	query := `SELECT id, node_name, started_at, completed_at, status, progress, trigger_type, error_message
+	query := `SELECT id, node_name, started_at, completed_at, status, progress, 
+	                 progress_percent, chunks_completed, chunks_total, trigger_type, error_message
 	          FROM uploads
 	          WHERE node_name = $1 AND status = 'running'
 	          ORDER BY started_at DESC

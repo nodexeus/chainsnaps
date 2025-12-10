@@ -3,6 +3,7 @@ package upload
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,14 +20,17 @@ type JSONB map[string]interface{}
 
 // Upload represents an upload operation
 type Upload struct {
-	ID           int64
-	NodeName     string
-	StartedAt    time.Time
-	CompletedAt  *time.Time
-	Status       string
-	Progress     JSONB
-	TriggerType  string
-	ErrorMessage *string
+	ID              int64
+	NodeName        string
+	StartedAt       time.Time
+	CompletedAt     *time.Time
+	Status          string
+	Progress        JSONB
+	ProgressPercent *float64
+	ChunksCompleted *int
+	ChunksTotal     *int
+	TriggerType     string
+	ErrorMessage    *string
 }
 
 // UploadProgress represents a progress check for an upload
@@ -258,6 +262,54 @@ func (m *Manager) parseUploadStatus(output string) (*UploadStatus, error) {
 	return status, nil
 }
 
+// extractProgressData extracts structured progress data from parsed status
+func (m *Manager) extractProgressData(progress JSONB) (progressPercent *float64, chunksCompleted *int, chunksTotal *int) {
+	// Extract progress percentage
+	if percentStr, ok := progress["progress_percent"].(string); ok {
+		if percent, err := parseFloat(percentStr); err == nil {
+			progressPercent = &percent
+		}
+	}
+
+	// Extract chunks completed
+	if completedStr, ok := progress["chunks_completed"].(string); ok {
+		if completed, err := parseInt(completedStr); err == nil {
+			chunksCompleted = &completed
+		}
+	}
+
+	// Extract chunks total
+	if totalStr, ok := progress["chunks_total"].(string); ok {
+		if total, err := parseInt(totalStr); err == nil {
+			chunksTotal = &total
+		}
+	}
+
+	return progressPercent, chunksCompleted, chunksTotal
+}
+
+// parseFloat safely parses a string to float64
+func parseFloat(s string) (float64, error) {
+	// Remove any trailing characters like '%'
+	s = strings.TrimSpace(s)
+	s = strings.TrimSuffix(s, "%")
+
+	// Try to parse as float
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		return f, nil
+	}
+	return 0, fmt.Errorf("invalid float: %s", s)
+}
+
+// parseInt safely parses a string to int
+func parseInt(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if i, err := strconv.Atoi(s); err == nil {
+		return i, nil
+	}
+	return 0, fmt.Errorf("invalid int: %s", s)
+}
+
 // InitiateUpload starts a new upload for a node
 func (m *Manager) InitiateUpload(ctx context.Context, nodeName string, triggerType string) (int64, error) {
 	m.logger.WithFields(logrus.Fields{
@@ -280,12 +332,18 @@ func (m *Manager) InitiateUpload(ctx context.Context, nodeName string, triggerTy
 	}
 
 	// Create upload record in database
+	initialProgress := JSONB{"stdout": stdout, "stderr": stderr}
+	progressPercent, chunksCompleted, chunksTotal := m.extractProgressData(initialProgress)
+
 	upload := Upload{
-		NodeName:    nodeName,
-		StartedAt:   time.Now(),
-		Status:      "running",
-		Progress:    JSONB{"stdout": stdout, "stderr": stderr},
-		TriggerType: triggerType,
+		NodeName:        nodeName,
+		StartedAt:       time.Now(),
+		Status:          "running",
+		Progress:        initialProgress,
+		ProgressPercent: progressPercent,
+		ChunksCompleted: chunksCompleted,
+		ChunksTotal:     chunksTotal,
+		TriggerType:     triggerType,
 	}
 
 	uploadID, err := m.db.CreateUpload(ctx, upload)
@@ -322,48 +380,42 @@ func (m *Manager) MonitorUploadProgress(ctx context.Context, uploadID int64, nod
 		return fmt.Errorf("failed to check upload status: %w", err)
 	}
 
-	// Store progress check
-	progress := UploadProgress{
-		UploadID:     uploadID,
-		CheckedAt:    time.Now(),
-		ProgressData: status.Progress,
+	// No need to store every progress check - just update the main upload record
+
+	// Extract structured progress data
+	progressPercent, chunksCompleted, chunksTotal := m.extractProgressData(status.Progress)
+
+	// Update the main upload record with current progress (whether running or not)
+	upload := Upload{
+		ID:              uploadID,
+		Progress:        status.Progress,
+		ProgressPercent: progressPercent,
+		ChunksCompleted: chunksCompleted,
+		ChunksTotal:     chunksTotal,
 	}
 
-	if err := m.db.StoreUploadProgress(ctx, progress); err != nil {
-		m.logger.WithFields(logrus.Fields{
-			"component": "upload",
-			"node":      nodeName,
-			"upload_id": uploadID,
-			"error":     err.Error(),
-		}).Error("Failed to store upload progress")
-		return fmt.Errorf("failed to store upload progress: %w", err)
-	}
-
-	// If upload is no longer running, update the upload record
+	// If upload is no longer running, also mark it as completed
 	if !status.IsRunning {
 		now := time.Now()
-		upload := Upload{
-			ID:          uploadID,
-			CompletedAt: &now,
-			Status:      "completed",
-			Progress:    status.Progress,
-		}
-
-		if err := m.db.UpdateUpload(ctx, upload); err != nil {
-			m.logger.WithFields(logrus.Fields{
-				"component": "upload",
-				"node":      nodeName,
-				"upload_id": uploadID,
-				"error":     err.Error(),
-			}).Error("Failed to update upload completion")
-			return fmt.Errorf("failed to update upload: %w", err)
-		}
+		upload.CompletedAt = &now
+		upload.Status = "completed"
 
 		m.logger.WithFields(logrus.Fields{
 			"component": "upload",
 			"node":      nodeName,
 			"upload_id": uploadID,
 		}).Info("Upload completed")
+	}
+
+	// Update the upload record (either with progress update or completion)
+	if err := m.db.UpdateUpload(ctx, upload); err != nil {
+		m.logger.WithFields(logrus.Fields{
+			"component": "upload",
+			"node":      nodeName,
+			"upload_id": uploadID,
+			"error":     err.Error(),
+		}).Error("Failed to update upload record")
+		return fmt.Errorf("failed to update upload: %w", err)
 	}
 
 	return nil

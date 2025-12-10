@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS uploads (
     completed_at TIMESTAMP,
     status VARCHAR(50) NOT NULL,
     progress JSONB,
+    progress_percent DECIMAL(5,2),  -- e.g., 8.96, 100.00
+    chunks_completed INTEGER,       -- e.g., 284
+    chunks_total INTEGER,          -- e.g., 3170
     trigger_type VARCHAR(20) NOT NULL,
     error_message TEXT
 );
