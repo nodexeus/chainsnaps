@@ -32,3 +32,4 @@ logs/
 # Go
 agent/bin/
 agent/cmd/snapperd/build_info.go
+agent/snapperd

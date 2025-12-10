@@ -78,16 +78,34 @@ func (m *Manager) CheckUploadStatus(ctx context.Context, nodeName string) (*Uplo
 		"action":    "check_status",
 	}).Debug("Checking upload status")
 
-	// Execute: bv n j <node> info upload
-	stdout, stderr, err := m.executor.Execute(ctx, "bv", "n", "j", nodeName, "info", "upload")
+	// Execute: bv node job <node> info upload
+	stdout, stderr, err := m.executor.Execute(ctx, "bv", "node", "job", nodeName, "info", "upload")
 	if err != nil {
+		// If the command fails, it likely means no job exists or job not found
+		// This should be treated as "not running" rather than an error
 		m.logger.WithFields(logrus.Fields{
 			"component": "upload",
 			"node":      nodeName,
 			"error":     err.Error(),
 			"stderr":    stderr,
-		}).Error("Failed to check upload status")
-		return nil, fmt.Errorf("failed to check upload status: %w", err)
+		}).Debug("Upload status command failed, treating as not running")
+
+		// Parse the error output to extract any useful information
+		errorOutput := stderr
+		if errorOutput == "" {
+			errorOutput = stdout
+		}
+
+		status := &UploadStatus{
+			IsRunning: false,
+			Progress: JSONB{
+				"error":      err.Error(),
+				"stderr":     stderr,
+				"stdout":     stdout,
+				"raw_output": errorOutput,
+			},
+		}
+		return status, nil
 	}
 
 	// Parse the status from stdout
@@ -112,7 +130,7 @@ func (m *Manager) CheckUploadStatus(ctx context.Context, nodeName string) (*Uplo
 }
 
 // parseUploadStatus parses the output from the upload info command
-// Expected format from `bv n j <node> info upload`:
+// Expected format from `bv node job <node> info upload`:
 // status:           2025-12-07 13:41:43 UTC| Finished with exit code 0 and message `...`
 // progress:         100.00% (3248/3248 multi-client upload completed)
 // restart_count:    0
@@ -126,10 +144,14 @@ func (m *Manager) parseUploadStatus(output string) (*UploadStatus, error) {
 	}
 
 	// Check for empty output or no job indicators
+	lowerOutput := strings.ToLower(output)
 	if output == "" ||
-		strings.Contains(strings.ToLower(output), "no job") ||
-		strings.Contains(strings.ToLower(output), "no upload") ||
-		strings.Contains(strings.ToLower(output), "not found") {
+		strings.Contains(lowerOutput, "no job") ||
+		strings.Contains(lowerOutput, "no upload") ||
+		strings.Contains(lowerOutput, "not found") ||
+		strings.Contains(lowerOutput, "job 'upload' not found") ||
+		strings.Contains(lowerOutput, "unknown status") ||
+		strings.Contains(lowerOutput, "job_status failed") {
 		status.IsRunning = false
 		status.Progress["raw_output"] = output
 		return status, nil
@@ -162,7 +184,9 @@ func (m *Manager) parseUploadStatus(output string) (*UploadStatus, error) {
 			} else if strings.Contains(lowerValue, "finished") ||
 				strings.Contains(lowerValue, "completed") ||
 				strings.Contains(lowerValue, "failed") ||
-				strings.Contains(lowerValue, "exit code") {
+				strings.Contains(lowerValue, "exit code") ||
+				strings.Contains(lowerValue, "unknown") ||
+				strings.Contains(lowerValue, "error") {
 				status.IsRunning = false
 			}
 
@@ -224,8 +248,8 @@ func (m *Manager) InitiateUpload(ctx context.Context, nodeName string, triggerTy
 		"action":       "initiate",
 	}).Info("Initiating upload")
 
-	// Execute: bv n run upload <node>
-	stdout, stderr, err := m.executor.Execute(ctx, "bv", "n", "run", "upload", nodeName)
+	// Execute: bv node run upload <node>
+	stdout, stderr, err := m.executor.Execute(ctx, "bv", "node", "run", "upload", nodeName)
 	if err != nil {
 		m.logger.WithFields(logrus.Fields{
 			"component": "upload",

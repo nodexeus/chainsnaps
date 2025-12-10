@@ -203,7 +203,7 @@ func TestCheckUploadStatus_CommandConstruction(t *testing.T) {
 	}
 
 	expectedCommand := "bv"
-	expectedArgs := []string{"n", "j", "ethereum-mainnet", "info", "upload"}
+	expectedArgs := []string{"node", "job", "ethereum-mainnet", "info", "upload"}
 
 	if capturedCommand != expectedCommand {
 		t.Errorf("Expected command %q, got %q", expectedCommand, capturedCommand)
@@ -246,7 +246,7 @@ func TestInitiateUpload_CommandConstruction(t *testing.T) {
 	}
 
 	expectedCommand := "bv"
-	expectedArgs := []string{"n", "run", "upload", "arbitrum-one"}
+	expectedArgs := []string{"node", "run", "upload", "arbitrum-one"}
 
 	if capturedCommand != expectedCommand {
 		t.Errorf("Expected command %q, got %q", expectedCommand, capturedCommand)
@@ -485,10 +485,18 @@ func TestCheckUploadStatus_ErrorHandling(t *testing.T) {
 		},
 	}, &mockDatabase{}, logrus.New())
 
-	_, err := manager.CheckUploadStatus(context.Background(), "test-node")
+	status, err := manager.CheckUploadStatus(context.Background(), "test-node")
 
-	if err == nil {
-		t.Error("Expected error when command execution fails")
+	if err != nil {
+		t.Errorf("Expected no error when command fails (should treat as not running), got: %v", err)
+	}
+
+	if status.IsRunning {
+		t.Error("Expected IsRunning to be false when command fails")
+	}
+
+	if status.Progress["error"] == nil {
+		t.Error("Expected error information to be stored in progress")
 	}
 }
 
@@ -589,6 +597,82 @@ progress:         25.00% (1024/4096 in progress)`,
 				if total, ok := status.Progress["chunks_total"].(string); !ok || total != tt.expectedTotal {
 					t.Errorf("Expected chunks_total=%q, got %v", tt.expectedTotal, status.Progress["chunks_total"])
 				}
+			}
+		})
+	}
+}
+func TestCheckUploadStatus_JobNotFound(t *testing.T) {
+	// Test the case where upload job has never been run before
+	executor := &mockExecutor{
+		executeFunc: func(ctx context.Context, command string, args ...string) (stdout, stderr string, err error) {
+			// Simulate the error output when job has never been run
+			stderr = `Error: status: Unknown, message: "status: Internal, message: \"job_status failed: unknown status, job 'upload' not found\", details: [], metadata: MetadataMap { headers: {\"content-type\": \"application/grpc\", \"date\": \"Wed, 10 Dec 2025 03:45:54 GMT\", \"content-length\": \"0\"} }", details: [], metadata: MetadataMap { headers: {"content-type": "application/grpc", "date": "Wed, 10 Dec 2025 03:45:54 GMT", "content-length": "0"} }`
+			return "", stderr, errors.New("exit status 1")
+		},
+	}
+
+	db := &mockDatabase{}
+	manager := NewManager(executor, db, logrus.New())
+
+	status, err := manager.CheckUploadStatus(context.Background(), "test-node")
+
+	if err != nil {
+		t.Fatalf("Expected no error when job not found, got: %v", err)
+	}
+
+	if status.IsRunning {
+		t.Error("Expected IsRunning to be false when job not found")
+	}
+
+	if status.Progress["error"] == nil {
+		t.Error("Expected error information to be stored in progress")
+	}
+}
+
+func TestCheckUploadStatus_CommandError(t *testing.T) {
+	// Test various command error scenarios
+	testCases := []struct {
+		name   string
+		stderr string
+		stdout string
+		err    error
+	}{
+		{
+			name:   "Job not found",
+			stderr: "job 'upload' not found",
+			err:    errors.New("exit status 1"),
+		},
+		{
+			name:   "Unknown status",
+			stderr: "unknown status",
+			err:    errors.New("exit status 1"),
+		},
+		{
+			name:   "Job status failed",
+			stderr: "job_status failed: some error",
+			err:    errors.New("exit status 1"),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			executor := &mockExecutor{
+				executeFunc: func(ctx context.Context, command string, args ...string) (stdout, stderr string, err error) {
+					return tc.stdout, tc.stderr, tc.err
+				},
+			}
+
+			db := &mockDatabase{}
+			manager := NewManager(executor, db, logrus.New())
+
+			status, err := manager.CheckUploadStatus(context.Background(), "test-node")
+
+			if err != nil {
+				t.Fatalf("Expected no error for %s, got: %v", tc.name, err)
+			}
+
+			if status.IsRunning {
+				t.Errorf("Expected IsRunning to be false for %s", tc.name)
 			}
 		})
 	}
