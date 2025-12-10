@@ -147,6 +147,7 @@ type UploadManager interface {
 	ShouldSkipUpload(ctx context.Context, nodeName string) (bool, error)
 	InitiateUpload(ctx context.Context, nodeName string, triggerType string) (int64, error)
 	InitiateUploadWithProtocolData(ctx context.Context, nodeName string, triggerType string, protocol string, nodeType string, protocolData map[string]interface{}) (int64, error)
+	CreateUploadRecord(ctx context.Context, nodeName, protocol, nodeType, triggerType string, protocolData map[string]interface{}) (int64, error)
 	MonitorUploadProgress(ctx context.Context, uploadID int64, nodeName string) error
 	CheckUploadStatus(ctx context.Context, nodeName string) (*upload.UploadStatus, error)
 }
@@ -158,8 +159,6 @@ type Database interface {
 	GetRunningUploads(ctx context.Context) ([]database.Upload, error)
 	GetRunningUploadForNode(ctx context.Context, nodeName string) (*database.Upload, error)
 	GetLatestCompletedUploadForNode(ctx context.Context, nodeName string) (*database.Upload, error)
-	UpsertRunningUpload(ctx context.Context, upload database.Upload) (int64, error)
-	StoreUploadProgress(ctx context.Context, progress database.UploadProgress) error
 }
 
 // NodeUploadJob handles the upload workflow for a single node
@@ -429,30 +428,20 @@ func (j *UploadMonitorJob) Run(ctx context.Context) error {
 
 			// Only create record for truly external uploads (not already tracked)
 			if status.IsRunning {
-				// Convert upload.JSONB to database.JSONB
-				dbProgress := make(database.JSONB)
+				// Convert upload.JSONB to regular map for the upload manager
+				progressData := make(map[string]interface{})
 				for k, v := range status.Progress {
-					dbProgress[k] = v
+					progressData[k] = v
 				}
 
 				nodeConfig := j.nodeConfigs[node]
-				upload := database.Upload{
-					NodeName:     node,
-					Protocol:     nodeConfig.Protocol,
-					NodeType:     nodeConfig.Type,
-					StartedAt:    time.Now(), // Only set this for NEW external records
-					Status:       "running",
-					TriggerType:  "external",
-					ProtocolData: dbProgress, // Store initial progress data as protocol data for external uploads
-				}
-
-				uploadID, err := j.db.CreateUpload(ctx, upload)
+				uploadID, err := j.uploadManager.CreateUploadRecord(ctx, node, nodeConfig.Protocol, nodeConfig.Type, "discovered", progressData)
 				if err != nil {
 					j.logger.WithFields(logrus.Fields{
 						"component": "scheduler",
 						"node":      node,
 						"error":     err.Error(),
-					}).Error("Failed to create database record for external upload")
+					}).Error("Failed to create upload record for discovered upload")
 					return
 				}
 
@@ -460,10 +449,7 @@ func (j *UploadMonitorJob) Run(ctx context.Context) error {
 					"component": "scheduler",
 					"node":      node,
 					"upload_id": uploadID,
-				}).Info("Discovered and registered external upload")
-
-				// Add to running uploads list for monitoring
-				runningUploads = append(runningUploads, upload)
+				}).Info("Discovered and registered upload")
 			}
 		}(nodeName)
 	}

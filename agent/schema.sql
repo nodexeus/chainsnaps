@@ -16,8 +16,13 @@ CREATE TABLE IF NOT EXISTS uploads (
     error_message TEXT,
     -- Blockchain state data captured before upload (what the snapshot contains)
     protocol_data JSONB NOT NULL,  -- Full protocol metrics (latest_block, latest_slot, earliest_blob, etc)
+    -- Current progress data (updated during upload)
+    progress_percent DECIMAL(5,2),  -- e.g., 8.96, 100.00
+    chunks_completed INTEGER,       -- e.g., 284
+    chunks_total INTEGER,          -- e.g., 3170
+    last_progress_check TIMESTAMP, -- When progress was last updated
     -- Completion metadata
-    total_chunks INTEGER,          -- Total chunks in completed upload
+    total_chunks INTEGER,          -- Total chunks in completed upload (final count)
     completion_message TEXT        -- Success/completion message from upload
 );
 
@@ -29,18 +34,3 @@ ON uploads (started_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_uploads_completed 
 ON uploads (node_name, completed_at DESC) WHERE completed_at IS NOT NULL;
-
--- Upload Progress Table
--- Records progress checks during upload operations (progress tracking only)
-CREATE TABLE IF NOT EXISTS upload_progress (
-    id BIGSERIAL PRIMARY KEY,
-    upload_id BIGINT NOT NULL REFERENCES uploads(id),
-    checked_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    progress_percent DECIMAL(5,2),  -- e.g., 8.96, 100.00
-    chunks_completed INTEGER,       -- e.g., 284
-    chunks_total INTEGER,          -- e.g., 3170
-    raw_status TEXT                -- Raw status output for debugging
-);
-
-CREATE INDEX IF NOT EXISTS idx_upload_progress_upload 
-ON upload_progress (upload_id, checked_at DESC);

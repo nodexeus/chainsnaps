@@ -44,6 +44,7 @@ type mockUploadManager struct {
 	shouldSkipFunc                     func(ctx context.Context, nodeName string) (bool, error)
 	initiateUploadFunc                 func(ctx context.Context, nodeName string, triggerType string) (int64, error)
 	initiateUploadWithProtocolDataFunc func(ctx context.Context, nodeName string, triggerType string, protocol string, nodeType string, protocolData map[string]interface{}) (int64, error)
+	createUploadRecordFunc             func(ctx context.Context, nodeName, protocol, nodeType, triggerType string, protocolData map[string]interface{}) (int64, error)
 	monitorProgressFunc                func(ctx context.Context, uploadID int64, nodeName string) error
 	checkUploadStatusFunc              func(ctx context.Context, nodeName string) (*upload.UploadStatus, error)
 }
@@ -68,6 +69,13 @@ func (m *mockUploadManager) InitiateUploadWithProtocolData(ctx context.Context, 
 	}
 	// Fallback to regular InitiateUpload method
 	return m.InitiateUpload(ctx, nodeName, triggerType)
+}
+
+func (m *mockUploadManager) CreateUploadRecord(ctx context.Context, nodeName, protocol, nodeType, triggerType string, protocolData map[string]interface{}) (int64, error) {
+	if m.createUploadRecordFunc != nil {
+		return m.createUploadRecordFunc(ctx, nodeName, protocol, nodeType, triggerType, protocolData)
+	}
+	return 1, nil
 }
 
 func (m *mockUploadManager) MonitorUploadProgress(ctx context.Context, uploadID int64, nodeName string) error {
@@ -111,17 +119,8 @@ func (m *mockDatabase) GetRunningUploadForNode(ctx context.Context, nodeName str
 	return nil, nil
 }
 
-func (m *mockDatabase) UpsertRunningUpload(ctx context.Context, upload database.Upload) (int64, error) {
-	// For tests, just return a mock ID
-	return 123, nil
-}
-
 func (m *mockDatabase) GetLatestCompletedUploadForNode(ctx context.Context, nodeName string) (*database.Upload, error) {
 	return nil, nil
-}
-
-func (m *mockDatabase) StoreUploadProgress(ctx context.Context, progress database.UploadProgress) error {
-	return nil
 }
 
 type mockProtocolModule struct {
@@ -629,6 +628,19 @@ func TestUploadMonitorJob_ExternalUploadDiscovery(t *testing.T) {
 			}
 			return &upload.UploadStatus{IsRunning: false}, nil
 		},
+		createUploadRecordFunc: func(ctx context.Context, nodeName, protocol, nodeType, triggerType string, protocolData map[string]interface{}) (int64, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			upload := database.Upload{
+				ID:          int64(len(createdUploads) + 1),
+				NodeName:    nodeName,
+				Protocol:    protocol,
+				NodeType:    nodeType,
+				TriggerType: triggerType,
+			}
+			createdUploads = append(createdUploads, upload)
+			return upload.ID, nil
+		},
 		monitorProgressFunc: func(ctx context.Context, uploadID int64, nodeName string) error {
 			return nil
 		},
@@ -641,13 +653,6 @@ func TestUploadMonitorJob_ExternalUploadDiscovery(t *testing.T) {
 			defer mu.Unlock()
 			// Return existing tracked uploads (none initially)
 			return createdUploads, nil
-		},
-		createUploadFunc: func(ctx context.Context, upload database.Upload) (int64, error) {
-			mu.Lock()
-			defer mu.Unlock()
-			upload.ID = int64(len(createdUploads) + 1)
-			createdUploads = append(createdUploads, upload)
-			return upload.ID, nil
 		},
 	}
 
@@ -676,8 +681,8 @@ func TestUploadMonitorJob_ExternalUploadDiscovery(t *testing.T) {
 		if upload.NodeName != "external-node" {
 			t.Errorf("Expected external upload for 'external-node', got '%s'", upload.NodeName)
 		}
-		if upload.TriggerType != "external" {
-			t.Errorf("Expected trigger_type 'external', got '%s'", upload.TriggerType)
+		if upload.TriggerType != "discovered" {
+			t.Errorf("Expected trigger_type 'discovered', got '%s'", upload.TriggerType)
 		}
 	}
 	mu.Unlock()

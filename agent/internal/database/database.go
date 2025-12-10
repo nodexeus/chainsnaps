@@ -38,20 +38,13 @@ type Upload struct {
 	Status            string     `db:"status"`
 	TriggerType       string     `db:"trigger_type"`
 	ErrorMessage      *string    `db:"error_message"`
-	ProtocolData      JSONB      `db:"protocol_data"`      // Blockchain state when upload started
-	TotalChunks       *int       `db:"total_chunks"`       // Total chunks in completed upload
-	CompletionMessage *string    `db:"completion_message"` // Success/completion message
-}
-
-// UploadProgress represents a progress check during an upload
-type UploadProgress struct {
-	ID              int64     `db:"id"`
-	UploadID        int64     `db:"upload_id"`
-	CheckedAt       time.Time `db:"checked_at"`
-	ProgressPercent *float64  `db:"progress_percent"`
-	ChunksCompleted *int      `db:"chunks_completed"`
-	ChunksTotal     *int      `db:"chunks_total"`
-	RawStatus       *string   `db:"raw_status"`
+	ProtocolData      JSONB      `db:"protocol_data"`       // Blockchain state when upload started
+	ProgressPercent   *float64   `db:"progress_percent"`    // Current progress percentage
+	ChunksCompleted   *int       `db:"chunks_completed"`    // Current chunks completed
+	ChunksTotal       *int       `db:"chunks_total"`        // Total chunks in upload
+	LastProgressCheck *time.Time `db:"last_progress_check"` // When progress was last updated
+	TotalChunks       *int       `db:"total_chunks"`        // Total chunks in completed upload (final count)
+	CompletionMessage *string    `db:"completion_message"`  // Success/completion message
 }
 
 // New creates a new database connection with connection pooling
@@ -109,11 +102,13 @@ func (db *DB) Migrate(ctx context.Context) error {
 		`ALTER TABLE uploads ADD COLUMN IF NOT EXISTS protocol_data JSONB`,
 		`ALTER TABLE uploads ADD COLUMN IF NOT EXISTS total_chunks INTEGER`,
 		`ALTER TABLE uploads ADD COLUMN IF NOT EXISTS completion_message TEXT`,
+		// Add progress columns to uploads table
+		`ALTER TABLE uploads ADD COLUMN IF NOT EXISTS progress_percent DECIMAL(5,2)`,
+		`ALTER TABLE uploads ADD COLUMN IF NOT EXISTS chunks_completed INTEGER`,
+		`ALTER TABLE uploads ADD COLUMN IF NOT EXISTS chunks_total INTEGER`,
+		`ALTER TABLE uploads ADD COLUMN IF NOT EXISTS last_progress_check TIMESTAMP`,
 		// Drop old columns (will be ignored if they don't exist)
 		`ALTER TABLE uploads DROP COLUMN IF EXISTS progress`,
-		`ALTER TABLE uploads DROP COLUMN IF EXISTS progress_percent`,
-		`ALTER TABLE uploads DROP COLUMN IF EXISTS chunks_completed`,
-		`ALTER TABLE uploads DROP COLUMN IF EXISTS chunks_total`,
 		`ALTER TABLE uploads DROP COLUMN IF EXISTS latest_block`,
 		`ALTER TABLE uploads DROP COLUMN IF EXISTS latest_slot`,
 		`ALTER TABLE uploads DROP COLUMN IF EXISTS data_size_bytes`,
@@ -124,26 +119,8 @@ func (db *DB) Migrate(ctx context.Context) error {
 		 ON uploads (started_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_uploads_completed 
 		 ON uploads (node_name, completed_at DESC) WHERE completed_at IS NOT NULL`,
-		// Create new upload_progress table structure
-		`CREATE TABLE IF NOT EXISTS upload_progress (
-			id BIGSERIAL PRIMARY KEY,
-			upload_id BIGINT NOT NULL REFERENCES uploads(id),
-			checked_at TIMESTAMP NOT NULL DEFAULT NOW(),
-			progress_percent DECIMAL(5,2),
-			chunks_completed INTEGER,
-			chunks_total INTEGER,
-			raw_status TEXT
-		)`,
-		// Add new columns to existing upload_progress table
-		`ALTER TABLE upload_progress ADD COLUMN IF NOT EXISTS progress_percent DECIMAL(5,2)`,
-		`ALTER TABLE upload_progress ADD COLUMN IF NOT EXISTS chunks_completed INTEGER`,
-		`ALTER TABLE upload_progress ADD COLUMN IF NOT EXISTS chunks_total INTEGER`,
-		`ALTER TABLE upload_progress ADD COLUMN IF NOT EXISTS raw_status TEXT`,
-		// Drop old column
-		`ALTER TABLE upload_progress DROP COLUMN IF EXISTS progress_data`,
-		`CREATE INDEX IF NOT EXISTS idx_upload_progress_upload 
-		 ON upload_progress (upload_id, checked_at DESC)`,
-		// Drop old node_metrics table
+		// Drop old tables
+		`DROP TABLE IF EXISTS upload_progress`,
 		`DROP TABLE IF EXISTS node_metrics`,
 	}
 
@@ -158,12 +135,14 @@ func (db *DB) Migrate(ctx context.Context) error {
 
 // CreateUpload creates a new upload record with protocol data
 func (db *DB) CreateUpload(ctx context.Context, upload Upload) (int64, error) {
-	query := `INSERT INTO uploads (node_name, protocol, node_type, started_at, status, trigger_type, protocol_data, total_chunks, completion_message, error_message)
-	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	query := `INSERT INTO uploads (node_name, protocol, node_type, started_at, status, trigger_type, protocol_data, 
+	                              progress_percent, chunks_completed, chunks_total, last_progress_check,
+	                              total_chunks, completion_message, error_message)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	          RETURNING id`
 
 	var id int64
-	err := db.queryRowWithRetry(ctx, query, &id, upload.NodeName, upload.Protocol, upload.NodeType, upload.StartedAt, upload.Status, upload.TriggerType, upload.ProtocolData, upload.TotalChunks, upload.CompletionMessage, upload.ErrorMessage)
+	err := db.queryRowWithRetry(ctx, query, &id, upload.NodeName, upload.Protocol, upload.NodeType, upload.StartedAt, upload.Status, upload.TriggerType, upload.ProtocolData, upload.ProgressPercent, upload.ChunksCompleted, upload.ChunksTotal, upload.LastProgressCheck, upload.TotalChunks, upload.CompletionMessage, upload.ErrorMessage)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create upload: %w", err)
 	}
@@ -174,16 +153,20 @@ func (db *DB) CreateUpload(ctx context.Context, upload Upload) (int64, error) {
 // UpdateUpload updates an existing upload record
 func (db *DB) UpdateUpload(ctx context.Context, upload Upload) error {
 	query := `UPDATE uploads 
-	          SET completed_at = $1, status = $2, error_message = $3, total_chunks = $4, completion_message = $5
-	          WHERE id = $6`
+	          SET completed_at = $1, status = $2, error_message = $3, 
+	              progress_percent = $4, chunks_completed = $5, chunks_total = $6, last_progress_check = $7,
+	              total_chunks = $8, completion_message = $9
+	          WHERE id = $10`
 
-	return db.execWithRetry(ctx, query, upload.CompletedAt, upload.Status, upload.ErrorMessage, upload.TotalChunks, upload.CompletionMessage, upload.ID)
+	return db.execWithRetry(ctx, query, upload.CompletedAt, upload.Status, upload.ErrorMessage, upload.ProgressPercent, upload.ChunksCompleted, upload.ChunksTotal, upload.LastProgressCheck, upload.TotalChunks, upload.CompletionMessage, upload.ID)
 }
 
 // GetRunningUploads retrieves all currently running uploads
 func (db *DB) GetRunningUploads(ctx context.Context) ([]Upload, error) {
 	query := `SELECT id, node_name, protocol, node_type, started_at, completed_at, status, 
-	                 trigger_type, error_message, protocol_data, total_chunks, completion_message
+	                 trigger_type, error_message, protocol_data, 
+	                 progress_percent, chunks_completed, chunks_total, last_progress_check,
+	                 total_chunks, completion_message
 	          FROM uploads
 	          WHERE status = 'running'
 	          ORDER BY started_at DESC`
@@ -200,7 +183,9 @@ func (db *DB) GetRunningUploads(ctx context.Context) ([]Upload, error) {
 // GetRunningUploadForNode retrieves a running upload for a specific node
 func (db *DB) GetRunningUploadForNode(ctx context.Context, nodeName string) (*Upload, error) {
 	query := `SELECT id, node_name, protocol, node_type, started_at, completed_at, status, 
-	                 trigger_type, error_message, protocol_data, total_chunks, completion_message
+	                 trigger_type, error_message, protocol_data,
+	                 progress_percent, chunks_completed, chunks_total, last_progress_check,
+	                 total_chunks, completion_message
 	          FROM uploads
 	          WHERE node_name = $1 AND status = 'running'
 	          ORDER BY started_at DESC
@@ -221,7 +206,9 @@ func (db *DB) GetRunningUploadForNode(ctx context.Context, nodeName string) (*Up
 // GetLatestCompletedUploadForNode retrieves the most recent completed upload for a node
 func (db *DB) GetLatestCompletedUploadForNode(ctx context.Context, nodeName string) (*Upload, error) {
 	query := `SELECT id, node_name, protocol, node_type, started_at, completed_at, status, 
-	                 trigger_type, error_message, protocol_data, total_chunks, completion_message
+	                 trigger_type, error_message, protocol_data,
+	                 progress_percent, chunks_completed, chunks_total, last_progress_check,
+	                 total_chunks, completion_message
 	          FROM uploads
 	          WHERE node_name = $1 AND status = 'completed' AND completed_at IS NOT NULL
 	          ORDER BY completed_at DESC
@@ -237,47 +224,6 @@ func (db *DB) GetLatestCompletedUploadForNode(ctx context.Context, nodeName stri
 	}
 
 	return &upload, nil
-}
-
-// StoreUploadProgress records a progress check for an upload
-func (db *DB) StoreUploadProgress(ctx context.Context, progress UploadProgress) error {
-	query := `INSERT INTO upload_progress (upload_id, checked_at, progress_percent, chunks_completed, chunks_total, raw_status)
-	          VALUES ($1, $2, $3, $4, $5, $6)`
-
-	return db.execWithRetry(ctx, query, progress.UploadID, progress.CheckedAt, progress.ProgressPercent, progress.ChunksCompleted, progress.ChunksTotal, progress.RawStatus)
-}
-
-// UpsertRunningUpload creates or updates a running upload record for a node
-// This ensures only one active upload per node exists at any time
-func (db *DB) UpsertRunningUpload(ctx context.Context, upload Upload) (int64, error) {
-	// First, try to get any existing running upload for this node
-	existing, err := db.GetRunningUploadForNode(ctx, upload.NodeName)
-	if err != nil {
-		return 0, fmt.Errorf("failed to check for existing upload: %w", err)
-	}
-
-	if existing != nil {
-		// Update the existing record with completion data only
-		existing.Status = upload.Status
-		existing.CompletedAt = upload.CompletedAt
-		existing.ErrorMessage = upload.ErrorMessage
-		existing.TotalChunks = upload.TotalChunks
-		existing.CompletionMessage = upload.CompletionMessage
-
-		// Don't update protocol_data - keep the original blockchain state
-		// Don't update started_at - keep the original start time
-		// Don't update trigger_type - keep the original trigger
-
-		err := db.UpdateUpload(ctx, *existing)
-		if err != nil {
-			return 0, fmt.Errorf("failed to update existing upload: %w", err)
-		}
-
-		return existing.ID, nil
-	}
-
-	// No existing upload, create a new one
-	return db.CreateUpload(ctx, upload)
 }
 
 // execWithRetry executes a query with exponential backoff retry logic

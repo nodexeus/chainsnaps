@@ -116,3 +116,69 @@ func TestArbitrumModule_Name(t *testing.T) {
 		t.Errorf("expected name 'arbitrum', got '%s'", module.Name())
 	}
 }
+func TestEthereumModule_HexToInt64(t *testing.T) {
+	module := NewEthereumModule()
+
+	tests := []struct {
+		name     string
+		hexStr   string
+		expected int64
+		hasError bool
+	}{
+		{
+			name:     "hex with 0x prefix",
+			hexStr:   "0x16df431",
+			expected: 23983153,
+			hasError: false,
+		},
+		{
+			name:     "hex without 0x prefix",
+			hexStr:   "16df431",
+			expected: 23983153,
+			hasError: false,
+		},
+		{
+			name:     "simple hex",
+			hexStr:   "0xff",
+			expected: 255,
+			hasError: false,
+		},
+		{
+			name:     "zero",
+			hexStr:   "0x0",
+			expected: 0,
+			hasError: false,
+		},
+		{
+			name:     "invalid hex",
+			hexStr:   "0xgg",
+			expected: 0,
+			hasError: true,
+		},
+		{
+			name:     "empty string",
+			hexStr:   "",
+			expected: 0,
+			hasError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := module.hexToInt64(tt.hexStr)
+
+			if tt.hasError {
+				if err == nil {
+					t.Errorf("expected error for input '%s', but got none", tt.hexStr)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error for input '%s': %v", tt.hexStr, err)
+				}
+				if result != tt.expected {
+					t.Errorf("expected %d for input '%s', got %d", tt.expected, tt.hexStr, result)
+				}
+			}
+		})
+	}
+}

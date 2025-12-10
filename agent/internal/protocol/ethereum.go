@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/nodexeus/agent/internal/config"
 )
@@ -63,7 +65,7 @@ func (e *EthereumModule) CollectMetrics(ctx context.Context, cfg config.NodeConf
 }
 
 // queryBlockNumber queries the latest block number via JSON-RPC
-func (e *EthereumModule) queryBlockNumber(ctx context.Context, rpcURL string) (string, error) {
+func (e *EthereumModule) queryBlockNumber(ctx context.Context, rpcURL string) (int64, error) {
 	reqBody := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"method":  "eth_blockNumber",
@@ -73,7 +75,7 @@ func (e *EthereumModule) queryBlockNumber(ctx context.Context, rpcURL string) (s
 
 	respData, err := e.doJSONRPCRequest(ctx, rpcURL, reqBody)
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 
 	var response struct {
@@ -85,14 +87,20 @@ func (e *EthereumModule) queryBlockNumber(ctx context.Context, rpcURL string) (s
 	}
 
 	if err := json.Unmarshal(respData, &response); err != nil {
-		return "", fmt.Errorf("failed to parse response: %w", err)
+		return 0, fmt.Errorf("failed to parse response: %w", err)
 	}
 
 	if response.Error != nil {
-		return "", fmt.Errorf("RPC error: %s", response.Error.Message)
+		return 0, fmt.Errorf("RPC error: %s", response.Error.Message)
 	}
 
-	return response.Result, nil
+	// Convert hexadecimal string to decimal
+	blockNumber, err := e.hexToInt64(response.Result)
+	if err != nil {
+		return 0, fmt.Errorf("failed to convert hex block number to decimal: %w", err)
+	}
+
+	return blockNumber, nil
 }
 
 // queryBeaconSlot queries the latest beacon chain slot
@@ -166,36 +174,22 @@ func (e *EthereumModule) queryEarliestBlob(ctx context.Context, beaconURL string
 	}
 
 	var response struct {
-		Data []struct {
-			Index string `json:"index"`
-		} `json:"data"`
+		Blob_Info struct {
+			Oldest_Blob_Slot string `json:"oldest_blob_slot"`
+		} `json:"blob_info"`
 	}
 
 	if err := json.Unmarshal(body, &response); err != nil {
 		return 0, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	if len(response.Data) == 0 {
-		return 0, fmt.Errorf("no blob data available")
+	var oldest_blob int64
+	if _, err := fmt.Sscanf(response.Blob_Info.Oldest_Blob_Slot, "%d", &oldest_blob); err != nil {
+		return 0, fmt.Errorf("failed to parse oldest_blob_slot: %w", err)
 	}
 
-	// Find the earliest (minimum) index
-	var earliestIndex int64 = -1
-	for _, blob := range response.Data {
-		var index int64
-		if _, err := fmt.Sscanf(blob.Index, "%d", &index); err != nil {
-			continue
-		}
-		if earliestIndex == -1 || index < earliestIndex {
-			earliestIndex = index
-		}
-	}
+	return oldest_blob, nil
 
-	if earliestIndex == -1 {
-		return 0, fmt.Errorf("failed to parse any blob indices")
-	}
-
-	return earliestIndex, nil
 }
 
 // doJSONRPCRequest performs a JSON-RPC request
@@ -227,4 +221,18 @@ func (e *EthereumModule) doJSONRPCRequest(ctx context.Context, url string, reqBo
 	}
 
 	return body, nil
+}
+
+// hexToInt64 converts a hexadecimal string (with or without 0x prefix) to int64
+func (e *EthereumModule) hexToInt64(hexStr string) (int64, error) {
+	// Remove 0x prefix if present
+	hexStr = strings.TrimPrefix(hexStr, "0x")
+
+	// Parse as hexadecimal
+	value, err := strconv.ParseInt(hexStr, 16, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid hex string '%s': %w", hexStr, err)
+	}
+
+	return value, nil
 }

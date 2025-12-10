@@ -25,7 +25,6 @@ type mockDatabase struct {
 	createUploadFunc            func(ctx context.Context, upload Upload) (int64, error)
 	updateUploadFunc            func(ctx context.Context, upload Upload) error
 	getRunningUploadForNodeFunc func(ctx context.Context, nodeName string) (*Upload, error)
-	storeUploadProgressFunc     func(ctx context.Context, progress UploadProgress) error
 }
 
 func (m *mockDatabase) CreateUpload(ctx context.Context, upload Upload) (int64, error) {
@@ -51,13 +50,6 @@ func (m *mockDatabase) GetRunningUploadForNode(ctx context.Context, nodeName str
 
 func (m *mockDatabase) GetLatestCompletedUploadForNode(ctx context.Context, nodeName string) (*Upload, error) {
 	return nil, nil
-}
-
-func (m *mockDatabase) StoreUploadProgress(ctx context.Context, progress UploadProgress) error {
-	if m.storeUploadProgressFunc != nil {
-		return m.storeUploadProgressFunc(ctx, progress)
-	}
-	return nil
 }
 
 func TestCheckUploadStatus_BVOutput(t *testing.T) {
@@ -389,7 +381,7 @@ progress:         100.00% (3248/3248 completed)`, "", nil
 }
 
 func TestMonitorUploadProgress_UpdatesProgress(t *testing.T) {
-	var capturedProgress UploadProgress
+	var capturedUpload Upload
 
 	executor := &mockExecutor{
 		executeFunc: func(ctx context.Context, command string, args ...string) (stdout, stderr string, err error) {
@@ -399,8 +391,8 @@ progress:         75.00% (2436/3248 uploading)`, "", nil
 	}
 
 	db := &mockDatabase{
-		storeUploadProgressFunc: func(ctx context.Context, progress UploadProgress) error {
-			capturedProgress = progress
+		updateUploadFunc: func(ctx context.Context, upload Upload) error {
+			capturedUpload = upload
 			return nil
 		},
 	}
@@ -412,20 +404,20 @@ progress:         75.00% (2436/3248 uploading)`, "", nil
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	if capturedProgress.UploadID != 999 {
-		t.Errorf("Expected upload ID 999, got %d", capturedProgress.UploadID)
+	if capturedUpload.ID != 999 {
+		t.Errorf("Expected upload ID 999, got %d", capturedUpload.ID)
 	}
 
-	if capturedProgress.ProgressPercent == nil || *capturedProgress.ProgressPercent != 75.0 {
-		t.Errorf("Expected progress percent 75.0, got %v", capturedProgress.ProgressPercent)
+	if capturedUpload.ProgressPercent == nil || *capturedUpload.ProgressPercent != 75.0 {
+		t.Errorf("Expected progress percent 75.0, got %v", capturedUpload.ProgressPercent)
 	}
 
-	if capturedProgress.ChunksCompleted == nil || *capturedProgress.ChunksCompleted != 2436 {
-		t.Errorf("Expected chunks completed 2436, got %v", capturedProgress.ChunksCompleted)
+	if capturedUpload.ChunksCompleted == nil || *capturedUpload.ChunksCompleted != 2436 {
+		t.Errorf("Expected chunks completed 2436, got %v", capturedUpload.ChunksCompleted)
 	}
 
-	if capturedProgress.ChunksTotal == nil || *capturedProgress.ChunksTotal != 3248 {
-		t.Errorf("Expected chunks total 3248, got %v", capturedProgress.ChunksTotal)
+	if capturedUpload.ChunksTotal == nil || *capturedUpload.ChunksTotal != 3248 {
+		t.Errorf("Expected chunks total 3248, got %v", capturedUpload.ChunksTotal)
 	}
 }
 
@@ -440,9 +432,6 @@ progress:         100.00% (3248/3248 completed)`, "", nil
 	}
 
 	db := &mockDatabase{
-		storeUploadProgressFunc: func(ctx context.Context, progress UploadProgress) error {
-			return nil
-		},
 		updateUploadFunc: func(ctx context.Context, upload Upload) error {
 			capturedUpload = upload
 			return nil
@@ -508,7 +497,7 @@ func TestCheckUploadStatus_ErrorHandling(t *testing.T) {
 
 func TestMonitorUploadProgress_ContinuesOnRunning(t *testing.T) {
 	var progressStored bool
-	var storedProgress UploadProgress
+	var storedUpload Upload
 
 	executor := &mockExecutor{
 		executeFunc: func(ctx context.Context, command string, args ...string) (stdout, stderr string, err error) {
@@ -518,9 +507,9 @@ progress:         50.00% (1624/3248 uploading)`, "", nil
 	}
 
 	db := &mockDatabase{
-		storeUploadProgressFunc: func(ctx context.Context, progress UploadProgress) error {
+		updateUploadFunc: func(ctx context.Context, upload Upload) error {
 			progressStored = true
-			storedProgress = progress
+			storedUpload = upload
 			return nil
 		},
 	}
@@ -533,15 +522,15 @@ progress:         50.00% (1624/3248 uploading)`, "", nil
 	}
 
 	if !progressStored {
-		t.Error("Expected StoreUploadProgress to be called for running upload")
+		t.Error("Expected UpdateUpload to be called for running upload")
 	}
 
-	if storedProgress.UploadID != 777 {
-		t.Errorf("Expected upload ID 777, got %d", storedProgress.UploadID)
+	if storedUpload.ID != 777 {
+		t.Errorf("Expected upload ID 777, got %d", storedUpload.ID)
 	}
 
-	if storedProgress.ProgressPercent == nil || *storedProgress.ProgressPercent != 50.0 {
-		t.Errorf("Expected progress percent 50.0, got %v", storedProgress.ProgressPercent)
+	if storedUpload.ProgressPercent == nil || *storedUpload.ProgressPercent != 50.0 {
+		t.Errorf("Expected progress percent 50.0, got %v", storedUpload.ProgressPercent)
 	}
 }
 

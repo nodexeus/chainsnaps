@@ -26,23 +26,19 @@ func TestDatabaseStructs(t *testing.T) {
 		t.Errorf("expected status 'running', got %s", upload.Status)
 	}
 
-	// Test UploadProgress struct
+	// Test progress fields in Upload struct
 	progressPercent := 75.5
 	chunksCompleted := 150
 	chunksTotal := 200
-	rawStatus := "Running upload..."
+	lastCheck := time.Now()
 
-	progress := UploadProgress{
-		UploadID:        1,
-		CheckedAt:       time.Now(),
-		ProgressPercent: &progressPercent,
-		ChunksCompleted: &chunksCompleted,
-		ChunksTotal:     &chunksTotal,
-		RawStatus:       &rawStatus,
-	}
+	upload.ProgressPercent = &progressPercent
+	upload.ChunksCompleted = &chunksCompleted
+	upload.ChunksTotal = &chunksTotal
+	upload.LastProgressCheck = &lastCheck
 
-	if progress.UploadID != 1 {
-		t.Errorf("expected upload ID 1, got %d", progress.UploadID)
+	if *upload.ProgressPercent != 75.5 {
+		t.Errorf("expected progress percent 75.5, got %f", *upload.ProgressPercent)
 	}
 }
 

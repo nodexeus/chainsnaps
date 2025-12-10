@@ -94,19 +94,6 @@ func (a *DatabaseAdapter) GetRunningUploadForNode(ctx context.Context, nodeName 
 	}, nil
 }
 
-// StoreUploadProgress adapts upload.UploadProgress to database.UploadProgress
-func (a *DatabaseAdapter) StoreUploadProgress(ctx context.Context, p upload.UploadProgress) error {
-	dbProgress := database.UploadProgress{
-		UploadID:        p.UploadID,
-		CheckedAt:       p.CheckedAt,
-		ProgressPercent: p.ProgressPercent,
-		ChunksCompleted: p.ChunksCompleted,
-		ChunksTotal:     p.ChunksTotal,
-		RawStatus:       p.RawStatus,
-	}
-	return a.db.StoreUploadProgress(ctx, dbProgress)
-}
-
 // GetLatestCompletedUploadForNode adapts database.Upload to upload.Upload
 func (a *DatabaseAdapter) GetLatestCompletedUploadForNode(ctx context.Context, nodeName string) (*upload.Upload, error) {
 	dbUpload, err := a.db.GetLatestCompletedUploadForNode(ctx, nodeName)
