@@ -26,7 +26,7 @@ type mockDatabase struct {
 	createUploadFunc            func(ctx context.Context, upload Upload) (int64, error)
 	updateUploadFunc            func(ctx context.Context, upload Upload) error
 	updateUploadProgressFunc    func(ctx context.Context, uploadID int64, status string, progressPercent *float64, chunksCompleted *int, chunksTotal *int, lastProgressCheck *time.Time) error
-	updateUploadCompletionFunc  func(ctx context.Context, uploadID int64, completedAt time.Time, status string, totalChunks *int, completionMessage *string, errorMessage *string) error
+	updateUploadCompletionFunc  func(ctx context.Context, uploadID int64, completedAt time.Time, status string, completionMessage *string, errorMessage *string) error
 	getRunningUploadForNodeFunc func(ctx context.Context, nodeName string) (*Upload, error)
 }
 
@@ -62,9 +62,9 @@ func (m *mockDatabase) UpdateUploadProgress(ctx context.Context, uploadID int64,
 	return nil
 }
 
-func (m *mockDatabase) UpdateUploadCompletion(ctx context.Context, uploadID int64, completedAt time.Time, status string, totalChunks *int, completionMessage *string, errorMessage *string) error {
+func (m *mockDatabase) UpdateUploadCompletion(ctx context.Context, uploadID int64, completedAt time.Time, status string, completionMessage *string, errorMessage *string) error {
 	if m.updateUploadCompletionFunc != nil {
-		return m.updateUploadCompletionFunc(ctx, uploadID, completedAt, status, totalChunks, completionMessage, errorMessage)
+		return m.updateUploadCompletionFunc(ctx, uploadID, completedAt, status, completionMessage, errorMessage)
 	}
 	return nil
 }
@@ -463,7 +463,7 @@ progress:         100.00% (3248/3248 completed)`, "", nil
 	}
 
 	db := &mockDatabase{
-		updateUploadCompletionFunc: func(ctx context.Context, uploadID int64, completedAt time.Time, status string, totalChunks *int, completionMessage *string, errorMessage *string) error {
+		updateUploadCompletionFunc: func(ctx context.Context, uploadID int64, completedAt time.Time, status string, completionMessage *string, errorMessage *string) error {
 			capturedUploadID = uploadID
 			capturedStatus = status
 			capturedCompletedAt = completedAt

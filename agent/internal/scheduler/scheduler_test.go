@@ -41,12 +41,14 @@ func (m *mockJob) getRunCount() int {
 }
 
 type mockUploadManager struct {
-	shouldSkipFunc                     func(ctx context.Context, nodeName string) (bool, error)
-	initiateUploadFunc                 func(ctx context.Context, nodeName string, triggerType string) (int64, error)
-	initiateUploadWithProtocolDataFunc func(ctx context.Context, nodeName string, triggerType string, protocol string, nodeType string, protocolData map[string]interface{}) (int64, error)
-	createUploadRecordFunc             func(ctx context.Context, nodeName, protocol, nodeType, triggerType string, protocolData map[string]interface{}) (int64, error)
-	monitorProgressFunc                func(ctx context.Context, uploadID int64, nodeName string) error
-	checkUploadStatusFunc              func(ctx context.Context, nodeName string) (*upload.UploadStatus, error)
+	shouldSkipFunc                      func(ctx context.Context, nodeName string) (bool, error)
+	initiateUploadFunc                  func(ctx context.Context, nodeName string, triggerType string) (int64, error)
+	initiateUploadWithProtocolDataFunc  func(ctx context.Context, nodeName string, triggerType string, protocol string, nodeType string, protocolData map[string]interface{}) (int64, error)
+	createUploadRecordFunc              func(ctx context.Context, nodeName, protocol, nodeType, triggerType string, protocolData map[string]interface{}) (int64, error)
+	createUploadRecordWithProgressFunc  func(ctx context.Context, nodeName, protocol, nodeType, triggerType string, protocolData map[string]interface{}, progressData map[string]interface{}) (int64, error)
+	monitorProgressFunc                 func(ctx context.Context, uploadID int64, nodeName string) error
+	monitorProgressWithNotificationFunc func(ctx context.Context, uploadID int64, nodeName string) (bool, error)
+	checkUploadStatusFunc               func(ctx context.Context, nodeName string) (*upload.UploadStatus, error)
 }
 
 func (m *mockUploadManager) ShouldSkipUpload(ctx context.Context, nodeName string) (bool, error) {
@@ -78,11 +80,25 @@ func (m *mockUploadManager) CreateUploadRecord(ctx context.Context, nodeName, pr
 	return 1, nil
 }
 
+func (m *mockUploadManager) CreateUploadRecordWithProgress(ctx context.Context, nodeName, protocol, nodeType, triggerType string, protocolData map[string]interface{}, progressData map[string]interface{}) (int64, error) {
+	if m.createUploadRecordWithProgressFunc != nil {
+		return m.createUploadRecordWithProgressFunc(ctx, nodeName, protocol, nodeType, triggerType, protocolData, progressData)
+	}
+	return 1, nil
+}
+
 func (m *mockUploadManager) MonitorUploadProgress(ctx context.Context, uploadID int64, nodeName string) error {
 	if m.monitorProgressFunc != nil {
 		return m.monitorProgressFunc(ctx, uploadID, nodeName)
 	}
 	return nil
+}
+
+func (m *mockUploadManager) MonitorUploadProgressWithNotification(ctx context.Context, uploadID int64, nodeName string) (bool, error) {
+	if m.monitorProgressWithNotificationFunc != nil {
+		return m.monitorProgressWithNotificationFunc(ctx, uploadID, nodeName)
+	}
+	return false, nil
 }
 
 func (m *mockUploadManager) CheckUploadStatus(ctx context.Context, nodeName string) (*upload.UploadStatus, error) {
@@ -499,7 +515,7 @@ func TestUploadMonitorJob_NoRunningUploads(t *testing.T) {
 	}
 
 	protocolRegistry := protocol.NewRegistry()
-	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, map[string]config.NodeConfig{}, logger)
+	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, notification.NewRegistry(), map[string]config.NodeConfig{}, logger)
 
 	ctx := context.Background()
 	err := job.Run(ctx)
@@ -517,11 +533,11 @@ func TestUploadMonitorJob_MonitorsMultipleUploads(t *testing.T) {
 	var mu sync.Mutex
 
 	uploadManager := &mockUploadManager{
-		monitorProgressFunc: func(ctx context.Context, uploadID int64, nodeName string) error {
+		monitorProgressWithNotificationFunc: func(ctx context.Context, uploadID int64, nodeName string) (bool, error) {
 			mu.Lock()
 			monitoredUploads[uploadID] = true
 			mu.Unlock()
-			return nil
+			return false, nil // Return false to indicate upload is still running
 		},
 	}
 
@@ -536,7 +552,7 @@ func TestUploadMonitorJob_MonitorsMultipleUploads(t *testing.T) {
 	}
 
 	protocolRegistry := protocol.NewRegistry()
-	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, map[string]config.NodeConfig{}, logger)
+	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, notification.NewRegistry(), map[string]config.NodeConfig{}, logger)
 
 	ctx := context.Background()
 	err := job.Run(ctx)
@@ -568,16 +584,16 @@ func TestUploadMonitorJob_NodeIsolation(t *testing.T) {
 	var mu sync.Mutex
 
 	uploadManager := &mockUploadManager{
-		monitorProgressFunc: func(ctx context.Context, uploadID int64, nodeName string) error {
+		monitorProgressWithNotificationFunc: func(ctx context.Context, uploadID int64, nodeName string) (bool, error) {
 			mu.Lock()
 			monitoredUploads[uploadID] = true
 			mu.Unlock()
 
 			// Simulate failure for upload 2
 			if uploadID == 2 {
-				return errors.New("monitoring failed")
+				return false, errors.New("monitoring failed")
 			}
-			return nil
+			return false, nil // Return false to indicate upload is still running
 		},
 	}
 
@@ -592,7 +608,7 @@ func TestUploadMonitorJob_NodeIsolation(t *testing.T) {
 	}
 
 	protocolRegistry := protocol.NewRegistry()
-	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, map[string]config.NodeConfig{}, logger)
+	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, notification.NewRegistry(), map[string]config.NodeConfig{}, logger)
 
 	ctx := context.Background()
 	err := job.Run(ctx)
@@ -631,7 +647,7 @@ func TestUploadMonitorJob_ExternalUploadDiscovery(t *testing.T) {
 			}
 			return &upload.UploadStatus{IsRunning: false}, nil
 		},
-		createUploadRecordFunc: func(ctx context.Context, nodeName, protocol, nodeType, triggerType string, protocolData map[string]interface{}) (int64, error) {
+		createUploadRecordWithProgressFunc: func(ctx context.Context, nodeName, protocol, nodeType, triggerType string, protocolData map[string]interface{}, progressData map[string]interface{}) (int64, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			upload := database.Upload{
@@ -666,7 +682,7 @@ func TestUploadMonitorJob_ExternalUploadDiscovery(t *testing.T) {
 	}
 
 	protocolRegistry := protocol.NewRegistry()
-	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, nodeConfigs, logger)
+	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, notification.NewRegistry(), nodeConfigs, logger)
 
 	ctx := context.Background()
 
@@ -757,7 +773,7 @@ func TestUploadMonitorJob_DoesNotDuplicateTrackedUploads(t *testing.T) {
 	}
 
 	protocolRegistry := protocol.NewRegistry()
-	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, nodeConfigs, logger)
+	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, notification.NewRegistry(), nodeConfigs, logger)
 
 	ctx := context.Background()
 	err := job.Run(ctx)

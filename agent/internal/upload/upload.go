@@ -34,7 +34,6 @@ type Upload struct {
 	ChunksCompleted   *int       // Current chunks completed
 	ChunksTotal       *int       // Total chunks in upload
 	LastProgressCheck *time.Time // When progress was last updated
-	TotalChunks       *int       // Total chunks in completed upload (final count)
 	CompletionMessage *string    // Success/completion message
 }
 
@@ -43,7 +42,7 @@ type Database interface {
 	CreateUpload(ctx context.Context, upload Upload) (int64, error)
 	UpdateUpload(ctx context.Context, upload Upload) error
 	UpdateUploadProgress(ctx context.Context, uploadID int64, status string, progressPercent *float64, chunksCompleted *int, chunksTotal *int, lastProgressCheck *time.Time) error
-	UpdateUploadCompletion(ctx context.Context, uploadID int64, completedAt time.Time, status string, totalChunks *int, completionMessage *string, errorMessage *string) error
+	UpdateUploadCompletion(ctx context.Context, uploadID int64, completedAt time.Time, status string, completionMessage *string, errorMessage *string) error
 	GetRunningUploadForNode(ctx context.Context, nodeName string) (*Upload, error)
 	GetLatestCompletedUploadForNode(ctx context.Context, nodeName string) (*Upload, error)
 }
@@ -454,7 +453,7 @@ func (m *Manager) MonitorUploadProgress(ctx context.Context, uploadID int64, nod
 		}
 
 		// Update completion data
-		if err := m.db.UpdateUploadCompletion(ctx, uploadID, completedAt, "completed", chunksTotal, completionMessage, nil); err != nil {
+		if err := m.db.UpdateUploadCompletion(ctx, uploadID, completedAt, "completed", completionMessage, nil); err != nil {
 			m.logger.WithFields(logrus.Fields{
 				"component": "upload",
 				"node":      nodeName,
@@ -496,6 +495,81 @@ func (m *Manager) MonitorUploadProgress(ctx context.Context, uploadID int64, nod
 	return nil
 }
 
+// MonitorUploadProgressWithNotification checks and updates the progress of an upload, returning completion status
+func (m *Manager) MonitorUploadProgressWithNotification(ctx context.Context, uploadID int64, nodeName string) (bool, error) {
+	m.logger.WithFields(logrus.Fields{
+		"component": "upload",
+		"node":      nodeName,
+		"upload_id": uploadID,
+		"action":    "monitor_progress_with_notification",
+	}).Debug("Monitoring upload progress with notification support")
+
+	// Check current status
+	status, err := m.CheckUploadStatus(ctx, nodeName)
+	if err != nil {
+		return false, fmt.Errorf("failed to check upload status: %w", err)
+	}
+
+	// Extract structured progress data
+	progressPercent, chunksCompleted, chunksTotal := m.extractProgressData(status.Progress)
+
+	// Update progress in the main upload record
+	now := time.Now()
+	completed := false
+
+	// If upload is no longer running, mark as completed
+	if !status.IsRunning {
+		completedAt := time.Now()
+		completed = true
+
+		// Extract completion message
+		var completionMessage *string
+		if statusMsg, ok := status.Progress["status"].(string); ok {
+			completionMessage = &statusMsg
+		}
+
+		// Update completion data
+		if err := m.db.UpdateUploadCompletion(ctx, uploadID, completedAt, "completed", completionMessage, nil); err != nil {
+			m.logger.WithFields(logrus.Fields{
+				"component": "upload",
+				"node":      nodeName,
+				"upload_id": uploadID,
+				"error":     err.Error(),
+			}).Error("Failed to update upload completion")
+			return false, fmt.Errorf("failed to update upload completion: %w", err)
+		}
+
+		m.logger.WithFields(logrus.Fields{
+			"component":          "upload",
+			"node":               nodeName,
+			"upload_id":          uploadID,
+			"completion_message": completionMessage,
+		}).Info("Upload completed")
+	} else {
+		// Upload is still running - update progress only
+		if err := m.db.UpdateUploadProgress(ctx, uploadID, "running", progressPercent, chunksCompleted, chunksTotal, &now); err != nil {
+			m.logger.WithFields(logrus.Fields{
+				"component": "upload",
+				"node":      nodeName,
+				"upload_id": uploadID,
+				"error":     err.Error(),
+			}).Error("Failed to update upload progress")
+			return false, fmt.Errorf("failed to update upload progress: %w", err)
+		}
+
+		m.logger.WithFields(logrus.Fields{
+			"component":        "upload",
+			"node":             nodeName,
+			"upload_id":        uploadID,
+			"progress_percent": progressPercent,
+			"chunks_completed": chunksCompleted,
+			"chunks_total":     chunksTotal,
+		}).Debug("Upload progress updated")
+	}
+
+	return completed, nil
+}
+
 // ShouldSkipUpload checks if an upload should be skipped (already running)
 func (m *Manager) ShouldSkipUpload(ctx context.Context, nodeName string) (bool, error) {
 	// Check database for running upload
@@ -532,6 +606,11 @@ func (m *Manager) ShouldSkipUpload(ctx context.Context, nodeName string) (bool, 
 
 // CreateUploadRecord creates a new upload record, checking for existing running uploads first
 func (m *Manager) CreateUploadRecord(ctx context.Context, nodeName, protocol, nodeType, triggerType string, protocolData map[string]interface{}) (int64, error) {
+	return m.CreateUploadRecordWithProgress(ctx, nodeName, protocol, nodeType, triggerType, protocolData, nil)
+}
+
+// CreateUploadRecordWithProgress creates a new upload record with separate protocol data and progress data
+func (m *Manager) CreateUploadRecordWithProgress(ctx context.Context, nodeName, protocol, nodeType, triggerType string, protocolData map[string]interface{}, progressData map[string]interface{}) (int64, error) {
 	// Check if there's already a running upload for this node
 	existingUpload, err := m.db.GetRunningUploadForNode(ctx, nodeName)
 	if err != nil {
@@ -547,11 +626,15 @@ func (m *Manager) CreateUploadRecord(ctx context.Context, nodeName, protocol, no
 		return existingUpload.ID, nil
 	}
 
-	// Extract started_at from protocol data if available, otherwise use current time
+	// Extract started_at from progress data if available, otherwise use current time
 	var startedAt time.Time
-	if startedAtStr, ok := protocolData["started_at"].(string); ok {
-		if parsedTime, err := time.Parse(time.RFC3339, startedAtStr); err == nil {
-			startedAt = parsedTime
+	if progressData != nil {
+		if startedAtStr, ok := progressData["started_at"].(string); ok {
+			if parsedTime, err := time.Parse(time.RFC3339, startedAtStr); err == nil {
+				startedAt = parsedTime
+			} else {
+				startedAt = time.Now()
+			}
 		} else {
 			startedAt = time.Now()
 		}
@@ -559,34 +642,36 @@ func (m *Manager) CreateUploadRecord(ctx context.Context, nodeName, protocol, no
 		startedAt = time.Now()
 	}
 
-	// Extract progress data from protocol data
+	// Extract progress data from progress data (not protocol data)
 	var progressPercent *float64
 	var chunksCompleted *int
 	var chunksTotal *int
 	var lastProgressCheck *time.Time
 
-	if percentStr, ok := protocolData["progress_percent"].(string); ok {
-		if percent, err := parseFloat(percentStr); err == nil {
-			progressPercent = &percent
+	if progressData != nil {
+		if percentStr, ok := progressData["progress_percent"].(string); ok {
+			if percent, err := parseFloat(percentStr); err == nil {
+				progressPercent = &percent
+			}
 		}
-	}
 
-	if completedStr, ok := protocolData["chunks_completed"].(string); ok {
-		if completed, err := parseInt(completedStr); err == nil {
-			chunksCompleted = &completed
+		if completedStr, ok := progressData["chunks_completed"].(string); ok {
+			if completed, err := parseInt(completedStr); err == nil {
+				chunksCompleted = &completed
+			}
 		}
-	}
 
-	if totalStr, ok := protocolData["chunks_total"].(string); ok {
-		if total, err := parseInt(totalStr); err == nil {
-			chunksTotal = &total
+		if totalStr, ok := progressData["chunks_total"].(string); ok {
+			if total, err := parseInt(totalStr); err == nil {
+				chunksTotal = &total
+			}
 		}
-	}
 
-	// Set last progress check to now if we have progress data
-	if progressPercent != nil || chunksCompleted != nil {
-		now := time.Now()
-		lastProgressCheck = &now
+		// Set last progress check to now if we have progress data
+		if progressPercent != nil || chunksCompleted != nil {
+			now := time.Now()
+			lastProgressCheck = &now
+		}
 	}
 
 	// No existing upload, create a new record

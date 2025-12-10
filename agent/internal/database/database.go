@@ -43,7 +43,6 @@ type Upload struct {
 	ChunksCompleted   *int       `db:"chunks_completed"`    // Current chunks completed
 	ChunksTotal       *int       `db:"chunks_total"`        // Total chunks in upload
 	LastProgressCheck *time.Time `db:"last_progress_check"` // When progress was last updated
-	TotalChunks       *int       `db:"total_chunks"`        // Total chunks in completed upload (final count)
 	CompletionMessage *string    `db:"completion_message"`  // Success/completion message
 }
 
@@ -112,6 +111,7 @@ func (db *DB) Migrate(ctx context.Context) error {
 		`ALTER TABLE uploads DROP COLUMN IF EXISTS latest_block`,
 		`ALTER TABLE uploads DROP COLUMN IF EXISTS latest_slot`,
 		`ALTER TABLE uploads DROP COLUMN IF EXISTS data_size_bytes`,
+		`ALTER TABLE uploads DROP COLUMN IF EXISTS total_chunks`,
 		// Create indexes
 		`CREATE INDEX IF NOT EXISTS idx_uploads_node_status 
 		 ON uploads (node_name, status)`,
@@ -137,12 +137,12 @@ func (db *DB) Migrate(ctx context.Context) error {
 func (db *DB) CreateUpload(ctx context.Context, upload Upload) (int64, error) {
 	query := `INSERT INTO uploads (node_name, protocol, node_type, started_at, status, trigger_type, protocol_data, 
 	                              progress_percent, chunks_completed, chunks_total, last_progress_check,
-	                              total_chunks, completion_message, error_message)
-	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+	                              completion_message, error_message)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	          RETURNING id`
 
 	var id int64
-	err := db.queryRowWithRetry(ctx, query, &id, upload.NodeName, upload.Protocol, upload.NodeType, upload.StartedAt, upload.Status, upload.TriggerType, upload.ProtocolData, upload.ProgressPercent, upload.ChunksCompleted, upload.ChunksTotal, upload.LastProgressCheck, upload.TotalChunks, upload.CompletionMessage, upload.ErrorMessage)
+	err := db.queryRowWithRetry(ctx, query, &id, upload.NodeName, upload.Protocol, upload.NodeType, upload.StartedAt, upload.Status, upload.TriggerType, upload.ProtocolData, upload.ProgressPercent, upload.ChunksCompleted, upload.ChunksTotal, upload.LastProgressCheck, upload.CompletionMessage, upload.ErrorMessage)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create upload: %w", err)
 	}
@@ -155,10 +155,10 @@ func (db *DB) UpdateUpload(ctx context.Context, upload Upload) error {
 	query := `UPDATE uploads 
 	          SET completed_at = $1, status = $2, error_message = $3, 
 	              progress_percent = $4, chunks_completed = $5, chunks_total = $6, last_progress_check = $7,
-	              total_chunks = $8, completion_message = $9
-	          WHERE id = $10`
+	              completion_message = $8
+	          WHERE id = $9`
 
-	return db.execWithRetry(ctx, query, upload.CompletedAt, upload.Status, upload.ErrorMessage, upload.ProgressPercent, upload.ChunksCompleted, upload.ChunksTotal, upload.LastProgressCheck, upload.TotalChunks, upload.CompletionMessage, upload.ID)
+	return db.execWithRetry(ctx, query, upload.CompletedAt, upload.Status, upload.ErrorMessage, upload.ProgressPercent, upload.ChunksCompleted, upload.ChunksTotal, upload.LastProgressCheck, upload.CompletionMessage, upload.ID)
 }
 
 // UpdateUploadProgress updates only the progress-related fields of an upload record
@@ -171,12 +171,12 @@ func (db *DB) UpdateUploadProgress(ctx context.Context, uploadID int64, status s
 }
 
 // UpdateUploadCompletion updates an upload record when it completes
-func (db *DB) UpdateUploadCompletion(ctx context.Context, uploadID int64, completedAt time.Time, status string, totalChunks *int, completionMessage *string, errorMessage *string) error {
+func (db *DB) UpdateUploadCompletion(ctx context.Context, uploadID int64, completedAt time.Time, status string, completionMessage *string, errorMessage *string) error {
 	query := `UPDATE uploads 
-	          SET completed_at = $1, status = $2, total_chunks = $3, completion_message = $4, error_message = $5
-	          WHERE id = $6`
+	          SET completed_at = $1, status = $2, completion_message = $3, error_message = $4
+	          WHERE id = $5`
 
-	return db.execWithRetry(ctx, query, completedAt, status, totalChunks, completionMessage, errorMessage, uploadID)
+	return db.execWithRetry(ctx, query, completedAt, status, completionMessage, errorMessage, uploadID)
 }
 
 // GetRunningUploads retrieves all currently running uploads
@@ -184,7 +184,7 @@ func (db *DB) GetRunningUploads(ctx context.Context) ([]Upload, error) {
 	query := `SELECT id, node_name, protocol, node_type, started_at, completed_at, status, 
 	                 trigger_type, error_message, protocol_data, 
 	                 progress_percent, chunks_completed, chunks_total, last_progress_check,
-	                 total_chunks, completion_message
+	                 completion_message
 	          FROM uploads
 	          WHERE status = 'running'
 	          ORDER BY started_at DESC`
@@ -203,7 +203,7 @@ func (db *DB) GetRunningUploadForNode(ctx context.Context, nodeName string) (*Up
 	query := `SELECT id, node_name, protocol, node_type, started_at, completed_at, status, 
 	                 trigger_type, error_message, protocol_data,
 	                 progress_percent, chunks_completed, chunks_total, last_progress_check,
-	                 total_chunks, completion_message
+	                 completion_message
 	          FROM uploads
 	          WHERE node_name = $1 AND status = 'running'
 	          ORDER BY started_at DESC
@@ -226,7 +226,7 @@ func (db *DB) GetLatestCompletedUploadForNode(ctx context.Context, nodeName stri
 	query := `SELECT id, node_name, protocol, node_type, started_at, completed_at, status, 
 	                 trigger_type, error_message, protocol_data,
 	                 progress_percent, chunks_completed, chunks_total, last_progress_check,
-	                 total_chunks, completion_message
+	                 completion_message
 	          FROM uploads
 	          WHERE node_name = $1 AND status = 'completed' AND completed_at IS NOT NULL
 	          ORDER BY completed_at DESC

@@ -148,7 +148,9 @@ type UploadManager interface {
 	InitiateUpload(ctx context.Context, nodeName string, triggerType string) (int64, error)
 	InitiateUploadWithProtocolData(ctx context.Context, nodeName string, triggerType string, protocol string, nodeType string, protocolData map[string]interface{}) (int64, error)
 	CreateUploadRecord(ctx context.Context, nodeName, protocol, nodeType, triggerType string, protocolData map[string]interface{}) (int64, error)
+	CreateUploadRecordWithProgress(ctx context.Context, nodeName, protocol, nodeType, triggerType string, protocolData map[string]interface{}, progressData map[string]interface{}) (int64, error)
 	MonitorUploadProgress(ctx context.Context, uploadID int64, nodeName string) error
+	MonitorUploadProgressWithNotification(ctx context.Context, uploadID int64, nodeName string) (completed bool, err error)
 	CheckUploadStatus(ctx context.Context, nodeName string) (*upload.UploadStatus, error)
 }
 
@@ -279,12 +281,9 @@ func (j *NodeUploadJob) Run(ctx context.Context) error {
 		"upload_id": uploadID,
 	}).Info("Upload initiated")
 
-	// Step 5: Start monitoring upload progress
-	// This will be handled by the UploadMonitorJob
-	j.sendNotification(ctx, notification.EventComplete, "Upload workflow completed", map[string]interface{}{
-		"upload_id": uploadID,
-		"metrics":   metrics,
-	})
+	// Step 5: Upload initiated successfully
+	// Monitoring will be handled by the UploadMonitorJob
+	// Note: Completion notifications will be sent when the upload actually finishes
 
 	return nil
 }
@@ -358,6 +357,7 @@ type UploadMonitorJob struct {
 	uploadManager    UploadManager
 	db               Database
 	protocolRegistry *protocol.Registry
+	notifyRegistry   *notification.Registry
 	logger           *logrus.Logger
 	nodeConfigs      map[string]config.NodeConfig
 }
@@ -367,6 +367,7 @@ func NewUploadMonitorJob(
 	uploadManager UploadManager,
 	db Database,
 	protocolRegistry *protocol.Registry,
+	notifyRegistry *notification.Registry,
 	nodeConfigs map[string]config.NodeConfig,
 	logger *logrus.Logger,
 ) *UploadMonitorJob {
@@ -378,6 +379,7 @@ func NewUploadMonitorJob(
 		uploadManager:    uploadManager,
 		db:               db,
 		protocolRegistry: protocolRegistry,
+		notifyRegistry:   notifyRegistry,
 		logger:           logger,
 		nodeConfigs:      nodeConfigs,
 	}
@@ -433,7 +435,7 @@ func (j *UploadMonitorJob) Run(ctx context.Context) error {
 			if status.IsRunning {
 				nodeConfig := j.nodeConfigs[node]
 
-				// Collect protocol metrics for discovered uploads
+				// Collect protocol metrics for discovered uploads (blockchain state only)
 				var protocolData map[string]interface{}
 				if protocolModule, err := j.protocolRegistry.Get(nodeConfig.Protocol); err == nil {
 					metrics, err := protocolModule.CollectMetrics(ctx, nodeConfig)
@@ -443,36 +445,28 @@ func (j *UploadMonitorJob) Run(ctx context.Context) error {
 							"node":      node,
 							"protocol":  nodeConfig.Protocol,
 							"error":     err.Error(),
-						}).Warn("Failed to collect protocol metrics for discovered upload, using progress data only")
+						}).Warn("Failed to collect protocol metrics for discovered upload, using empty protocol data")
 
-						// Fallback to progress data only
+						// Use empty protocol data if collection fails
 						protocolData = make(map[string]interface{})
-						for k, v := range status.Progress {
-							protocolData[k] = v
-						}
 					} else {
-						// Merge protocol metrics with progress data
-						protocolData = make(map[string]interface{})
-
-						// Add protocol metrics first
-						for k, v := range metrics {
-							protocolData[k] = v
-						}
-
-						// Add progress data (may override some protocol metrics)
-						for k, v := range status.Progress {
-							protocolData[k] = v
-						}
+						// Use only the protocol metrics (blockchain state)
+						protocolData = metrics
 					}
 				} else {
-					// No protocol module, use progress data only
+					// No protocol module, use empty protocol data
+					j.logger.WithFields(logrus.Fields{
+						"component": "scheduler",
+						"node":      node,
+						"protocol":  nodeConfig.Protocol,
+					}).Warn("No protocol module found for discovered upload")
 					protocolData = make(map[string]interface{})
-					for k, v := range status.Progress {
-						protocolData[k] = v
-					}
 				}
 
-				uploadID, err := j.uploadManager.CreateUploadRecord(ctx, node, nodeConfig.Protocol, nodeConfig.Type, "discovered", protocolData)
+				// Extract progress data separately (for database columns)
+				progressData := status.Progress
+
+				uploadID, err := j.uploadManager.CreateUploadRecordWithProgress(ctx, node, nodeConfig.Protocol, nodeConfig.Type, "discovered", protocolData, progressData)
 				if err != nil {
 					j.logger.WithFields(logrus.Fields{
 						"component": "scheduler",
@@ -513,7 +507,8 @@ func (j *UploadMonitorJob) Run(ctx context.Context) error {
 			defer monitorWg.Done()
 
 			// Each upload is monitored independently to ensure node isolation
-			if err := j.uploadManager.MonitorUploadProgress(ctx, u.ID, u.NodeName); err != nil {
+			completed, err := j.uploadManager.MonitorUploadProgressWithNotification(ctx, u.ID, u.NodeName)
+			if err != nil {
 				j.logger.WithFields(logrus.Fields{
 					"component": "scheduler",
 					"node":      u.NodeName,
@@ -521,6 +516,12 @@ func (j *UploadMonitorJob) Run(ctx context.Context) error {
 					"error":     err.Error(),
 				}).Error("Failed to monitor upload progress")
 				// Don't return error - continue monitoring other uploads (node isolation)
+			} else if completed {
+				// Send completion notification
+				j.sendNotification(ctx, u.NodeName, notification.EventComplete, "Upload completed successfully", map[string]interface{}{
+					"upload_id": u.ID,
+					"node":      u.NodeName,
+				})
 			}
 		}(upload)
 	}
@@ -532,6 +533,68 @@ func (j *UploadMonitorJob) Run(ctx context.Context) error {
 	}).Debug("Comprehensive upload monitor job completed")
 
 	return nil
+}
+
+// sendNotification sends a notification for upload events
+func (j *UploadMonitorJob) sendNotification(ctx context.Context, nodeName string, event notification.NotificationEvent, message string, details map[string]interface{}) {
+	if j.notifyRegistry == nil {
+		return
+	}
+
+	// Get node-specific notification config
+	nodeConfig, exists := j.nodeConfigs[nodeName]
+	if !exists {
+		return
+	}
+
+	notifyConfig := nodeConfig.Notifications
+	if notifyConfig == nil {
+		return
+	}
+
+	// Check if this event type should trigger a notification
+	shouldNotify := false
+	switch event {
+	case notification.EventFailure:
+		shouldNotify = notifyConfig.Failure
+	case notification.EventSkip:
+		shouldNotify = notifyConfig.Skip
+	case notification.EventComplete:
+		shouldNotify = notifyConfig.Complete
+	}
+
+	if !shouldNotify {
+		return
+	}
+
+	// Send notification to all configured types
+	for notificationType, typeConfig := range notifyConfig.Types {
+		notificationModule, err := j.notifyRegistry.Get(notificationType)
+		if err != nil {
+			j.logger.WithFields(logrus.Fields{
+				"component": "scheduler",
+				"type":      notificationType,
+			}).Warn("Notification module not found")
+			continue
+		}
+
+		payload := notification.NotificationPayload{
+			Event:     event,
+			NodeName:  nodeName,
+			Timestamp: time.Now(),
+			Message:   message,
+			Details:   details,
+		}
+
+		if err := notificationModule.Send(ctx, typeConfig.URL, payload); err != nil {
+			j.logger.WithFields(logrus.Fields{
+				"component": "scheduler",
+				"type":      notificationType,
+				"node":      nodeName,
+				"error":     err.Error(),
+			}).Error("Failed to send notification")
+		}
+	}
 }
 
 // parseFloat safely parses a string to float64

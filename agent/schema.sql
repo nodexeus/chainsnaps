@@ -19,10 +19,9 @@ CREATE TABLE IF NOT EXISTS uploads (
     -- Current progress data (updated during upload)
     progress_percent DECIMAL(5,2),  -- e.g., 8.96, 100.00
     chunks_completed INTEGER,       -- e.g., 284
-    chunks_total INTEGER,          -- e.g., 3170
+    chunks_total INTEGER,          -- e.g., 3170 (total chunks in upload)
     last_progress_check TIMESTAMP, -- When progress was last updated
     -- Completion metadata
-    total_chunks INTEGER,          -- Total chunks in completed upload (final count)
     completion_message TEXT        -- Success/completion message from upload
 );
 

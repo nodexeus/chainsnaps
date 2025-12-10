@@ -44,7 +44,6 @@ func (a *DatabaseAdapter) CreateUpload(ctx context.Context, u upload.Upload) (in
 		TriggerType:       u.TriggerType,
 		ErrorMessage:      u.ErrorMessage,
 		ProtocolData:      database.JSONB(u.ProtocolData),
-		TotalChunks:       u.TotalChunks,
 		CompletionMessage: u.CompletionMessage,
 	}
 	return a.db.CreateUpload(ctx, dbUpload)
@@ -63,7 +62,6 @@ func (a *DatabaseAdapter) UpdateUpload(ctx context.Context, u upload.Upload) err
 		TriggerType:       u.TriggerType,
 		ErrorMessage:      u.ErrorMessage,
 		ProtocolData:      database.JSONB(u.ProtocolData),
-		TotalChunks:       u.TotalChunks,
 		CompletionMessage: u.CompletionMessage,
 	}
 	return a.db.UpdateUpload(ctx, dbUpload)
@@ -89,7 +87,6 @@ func (a *DatabaseAdapter) GetRunningUploadForNode(ctx context.Context, nodeName 
 		TriggerType:       dbUpload.TriggerType,
 		ErrorMessage:      dbUpload.ErrorMessage,
 		ProtocolData:      upload.JSONB(dbUpload.ProtocolData),
-		TotalChunks:       dbUpload.TotalChunks,
 		CompletionMessage: dbUpload.CompletionMessage,
 	}, nil
 }
@@ -114,7 +111,6 @@ func (a *DatabaseAdapter) GetLatestCompletedUploadForNode(ctx context.Context, n
 		TriggerType:       dbUpload.TriggerType,
 		ErrorMessage:      dbUpload.ErrorMessage,
 		ProtocolData:      upload.JSONB(dbUpload.ProtocolData),
-		TotalChunks:       dbUpload.TotalChunks,
 		CompletionMessage: dbUpload.CompletionMessage,
 	}, nil
 }
@@ -125,8 +121,8 @@ func (a *DatabaseAdapter) UpdateUploadProgress(ctx context.Context, uploadID int
 }
 
 // UpdateUploadCompletion adapts to database.DB method
-func (a *DatabaseAdapter) UpdateUploadCompletion(ctx context.Context, uploadID int64, completedAt time.Time, status string, totalChunks *int, completionMessage *string, errorMessage *string) error {
-	return a.db.UpdateUploadCompletion(ctx, uploadID, completedAt, status, totalChunks, completionMessage, errorMessage)
+func (a *DatabaseAdapter) UpdateUploadCompletion(ctx context.Context, uploadID int64, completedAt time.Time, status string, completionMessage *string, errorMessage *string) error {
+	return a.db.UpdateUploadCompletion(ctx, uploadID, completedAt, status, completionMessage, errorMessage)
 }
 
 func main() {
@@ -301,7 +297,7 @@ func runDaemon(configPath string, consoleMode bool) int {
 	sched := scheduler.NewCronScheduler(log.Logger)
 
 	// Add global status update job (upload monitor)
-	monitorJob := scheduler.NewUploadMonitorJob(uploadMgr, db, protocolRegistry, cfg.Nodes, log.Logger)
+	monitorJob := scheduler.NewUploadMonitorJob(uploadMgr, db, protocolRegistry, notificationRegistry, cfg.Nodes, log.Logger)
 	if err := sched.AddJob(cfg.Schedule, monitorJob); err != nil {
 		log.WithFields(logrus.Fields{
 			"component": "main",
