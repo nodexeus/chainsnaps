@@ -31,13 +31,12 @@ nodes:
     protocol: ethereum
     type: archive
     schedule: "0 */6 * * *"
-    rpc_url: http://localhost:8545
-    beacon_url: http://localhost:5052
+    url: http://localhost:8545
   arbitrum-one:
     protocol: arbitrum
     type: archive
     schedule: "0 */12 * * *"
-    rpc_url: http://localhost:8547
+    url: http://localhost:8547
 `
 
 	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
@@ -96,7 +95,7 @@ nodes:
     protocol: ethereum
     type: archive
     schedule: "0 */6 * * *"
-    rpc_url: http://localhost:8545
+    url: http://localhost:8545
 `
 
 	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
@@ -242,7 +241,7 @@ func TestNodeConfigValidate(t *testing.T) {
 			config: NodeConfig{
 				Protocol: "ethereum",
 				Type:     "archive",
-				RPCUrl:   "http://localhost:8545",
+				URL:      "http://localhost:8545",
 				Schedule: "0 */6 * * *",
 			},
 			wantErr: false,
@@ -251,13 +250,13 @@ func TestNodeConfigValidate(t *testing.T) {
 			name: "missing protocol",
 			config: NodeConfig{
 				Type:     "archive",
-				RPCUrl:   "http://localhost:8545",
+				URL:      "http://localhost:8545",
 				Schedule: "0 */6 * * *",
 			},
 			wantErr: true,
 		},
 		{
-			name: "missing rpc_url",
+			name: "missing url",
 			config: NodeConfig{
 				Protocol: "ethereum",
 				Type:     "archive",
@@ -270,7 +269,7 @@ func TestNodeConfigValidate(t *testing.T) {
 			config: NodeConfig{
 				Protocol: "ethereum",
 				Type:     "archive",
-				RPCUrl:   "http://localhost:8545",
+				URL:      "http://localhost:8545",
 			},
 			wantErr: true,
 		},
@@ -278,7 +277,7 @@ func TestNodeConfigValidate(t *testing.T) {
 			name: "invalid schedule",
 			config: NodeConfig{
 				Protocol: "ethereum",
-				RPCUrl:   "http://localhost:8545",
+				URL:      "http://localhost:8545",
 				Schedule: "invalid",
 			},
 			wantErr: true,
@@ -287,7 +286,7 @@ func TestNodeConfigValidate(t *testing.T) {
 			name: "valid with schedule",
 			config: NodeConfig{
 				Protocol: "ethereum",
-				RPCUrl:   "http://localhost:8545",
+				URL:      "http://localhost:8545",
 				Schedule: "0 */6 * * *",
 			},
 			wantErr: false,
@@ -363,12 +362,12 @@ func TestGetNodeSchedule(t *testing.T) {
 		Nodes: map[string]NodeConfig{
 			"node-with-schedule": {
 				Protocol: "ethereum",
-				RPCUrl:   "http://localhost:8545",
+				URL:      "http://localhost:8545",
 				Schedule: "0 */6 * * *",
 			},
 			"another-node": {
 				Protocol: "arbitrum",
-				RPCUrl:   "http://localhost:8547",
+				URL:      "http://localhost:8547",
 				Schedule: "0 */12 * * *",
 			},
 		},
@@ -417,12 +416,14 @@ func TestGetNodeNotifications(t *testing.T) {
 		Nodes: map[string]NodeConfig{
 			"node-with-notif": {
 				Protocol:      "ethereum",
-				RPCUrl:        "http://localhost:8545",
+				URL:           "http://localhost:8545",
+				Schedule:      "0 */6 * * *",
 				Notifications: nodeNotif,
 			},
 			"node-without-notif": {
 				Protocol: "arbitrum",
-				RPCUrl:   "http://localhost:8547",
+				URL:      "http://localhost:8547",
+				Schedule: "0 */12 * * *",
 			},
 		},
 	}
@@ -482,7 +483,8 @@ func TestConfigValidateInvalidGlobalSchedule(t *testing.T) {
 		Nodes: map[string]NodeConfig{
 			"test": {
 				Protocol: "ethereum",
-				RPCUrl:   "http://localhost:8545",
+				URL:      "http://localhost:8545",
+				Schedule: "0 */6 * * *",
 			},
 		},
 	}

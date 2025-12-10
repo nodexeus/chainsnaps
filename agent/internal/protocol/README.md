@@ -73,8 +73,7 @@ The protocol system integrates with the configuration package to validate that a
 nodes:
   ethereum-mainnet:
     protocol: ethereum  # Must be registered
-    rpc_url: http://localhost:8545
-    beacon_url: http://localhost:5052
+    url: http://localhost:8545
 ```
 
 ## Error Handling

@@ -130,7 +130,7 @@ nodes:
     protocol: ethereum
     type: archive
     schedule: "0 */6 * * *"
-    rpc_url: http://localhost:8545
+    url: http://localhost:8545
 `
 
 	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
@@ -170,7 +170,7 @@ nodes:
     protocol: ethereum
     type: archive
     schedule: "0 */6 * * *"
-    rpc_url: http://localhost:8545
+    url: http://localhost:8545
     notifications:
       failure: true
       skip: false
@@ -223,7 +223,7 @@ nodes:
     protocol: ethereum
     type: archive
     schedule: "0 */6 * * *"
-    rpc_url: http://localhost:8545
+    url: http://localhost:8545
     notifications:
       failure: false
       skip: true
@@ -290,7 +290,7 @@ nodes:
     protocol: ethereum
     type: archive
     schedule: "0 */6 * * *"
-    rpc_url: http://localhost:8545
+    url: http://localhost:8545
     notifications:
       failure: true
       skip: true

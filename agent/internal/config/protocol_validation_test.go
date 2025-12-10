@@ -39,7 +39,7 @@ nodes:
     protocol: ethereum
     type: archive
     schedule: "0 */6 * * *"
-    rpc_url: http://localhost:8545
+    url: http://localhost:8545
 `
 
 	tmpFile, err := os.CreateTemp("", "config-*.yaml")
@@ -103,7 +103,7 @@ nodes:
     protocol: ethereum
     type: archive
     schedule: "0 */6 * * *"
-    rpc_url: http://localhost:8545
+    url: http://localhost:8545
 `
 
 	tmpFile, err := os.CreateTemp("", "config-*.yaml")

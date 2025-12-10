@@ -33,29 +33,30 @@ func (e *EthereumModule) CollectMetrics(ctx context.Context, cfg config.NodeConf
 	metrics := make(map[string]interface{})
 
 	// Query eth_blockNumber from execution client
-	blockNumber, err := e.queryBlockNumber(ctx, cfg.RPCUrl)
+	blockNumber, err := e.queryBlockNumber(ctx, cfg.URL)
 	if err != nil {
 		metrics["latest_block"] = nil
 	} else {
 		metrics["latest_block"] = blockNumber
 	}
 
-	// Query beacon chain slot if beacon URL is provided
-	if cfg.BeaconUrl != "" {
-		slot, err := e.queryBeaconSlot(ctx, cfg.BeaconUrl)
-		if err != nil {
-			metrics["latest_slot"] = nil
-		} else {
-			metrics["latest_slot"] = slot
-		}
+	// Build beacon URL from base URL
+	beaconURL := fmt.Sprintf("%s/beacon", cfg.URL)
 
-		// Query earliest blob
-		earliestBlob, err := e.queryEarliestBlob(ctx, cfg.BeaconUrl)
-		if err != nil {
-			metrics["earliest_blob"] = nil
-		} else {
-			metrics["earliest_blob"] = earliestBlob
-		}
+	// Query beacon chain slot
+	slot, err := e.queryBeaconSlot(ctx, beaconURL)
+	if err != nil {
+		metrics["latest_slot"] = nil
+	} else {
+		metrics["latest_slot"] = slot
+	}
+
+	// Query earliest blob
+	earliestBlob, err := e.queryEarliestBlob(ctx, beaconURL)
+	if err != nil {
+		metrics["earliest_blob"] = nil
+	} else {
+		metrics["earliest_blob"] = earliestBlob
 	}
 
 	return metrics, nil

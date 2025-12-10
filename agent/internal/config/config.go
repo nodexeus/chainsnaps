@@ -46,8 +46,7 @@ type NodeConfig struct {
 	Protocol      string              `yaml:"protocol"`
 	Type          string              `yaml:"type"`
 	Schedule      string              `yaml:"schedule"`
-	RPCUrl        string              `yaml:"rpc_url"`
-	BeaconUrl     string              `yaml:"beacon_url,omitempty"`
+	URL           string              `yaml:"url"`
 	Notifications *NotificationConfig `yaml:"notifications,omitempty"`
 }
 
@@ -155,8 +154,8 @@ func (n *NodeConfig) Validate() error {
 	if n.Protocol == "" {
 		return fmt.Errorf("protocol is required")
 	}
-	if n.RPCUrl == "" {
-		return fmt.Errorf("rpc_url is required")
+	if n.URL == "" {
+		return fmt.Errorf("url is required")
 	}
 	if n.Schedule == "" {
 		return fmt.Errorf("schedule is required")

@@ -225,13 +225,26 @@ GRANT ALL PRIVILEGES ON DATABASE snapd TO snapd;
 
 ### Step 2: Create Database Schema
 
-The daemon will automatically create the required tables on first run. The schema includes:
+**Option A: Automatic Migration (Recommended)**
 
-- `node_metrics`: Stores RPC query results
-- `uploads`: Tracks upload operations
-- `upload_progress`: Monitors upload progress
+The daemon will automatically create the required tables on first run via the built-in migration system. No manual action needed - just start the daemon and it will handle schema creation.
 
-To manually verify the schema:
+**Option B: Manual Schema Creation**
+
+If you prefer to create the schema manually before starting the daemon:
+
+```bash
+# Apply the schema from the SQL file
+psql -h localhost -U snapd -d snapd -f agent/schema.sql
+```
+
+The schema includes:
+
+- `node_metrics`: Stores RPC query results and collected metrics
+- `uploads`: Tracks upload operations (status, timing, errors)
+- `upload_progress`: Monitors upload progress over time
+
+To verify the schema was created:
 
 ```bash
 # Connect to the database
@@ -239,6 +252,8 @@ psql -h localhost -U snapd -d snapd
 
 # List tables
 \dt
+
+# Should show: node_metrics, uploads, upload_progress
 
 # Exit
 \q

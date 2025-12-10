@@ -36,10 +36,9 @@ func Example() {
 	// Example of collecting metrics (would need a real RPC endpoint)
 	ctx := context.Background()
 	nodeConfig := config.NodeConfig{
-		Protocol:  "ethereum",
-		Type:      "archive",
-		RPCUrl:    "http://localhost:8545",
-		BeaconUrl: "http://localhost:5052",
+		Protocol: "ethereum",
+		Type:     "archive",
+		URL:      "http://localhost:8545",
 	}
 
 	// Note: This would return metrics with nil values without a real RPC endpoint

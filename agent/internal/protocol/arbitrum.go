@@ -33,7 +33,7 @@ func (a *ArbitrumModule) CollectMetrics(ctx context.Context, cfg config.NodeConf
 	metrics := make(map[string]interface{})
 
 	// Query eth_blockNumber from Arbitrum node
-	blockNumber, err := a.queryBlockNumber(ctx, cfg.RPCUrl)
+	blockNumber, err := a.queryBlockNumber(ctx, cfg.URL)
 	if err != nil {
 		metrics["latest_block"] = nil
 	} else {
