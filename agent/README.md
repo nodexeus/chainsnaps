@@ -67,12 +67,12 @@ sudo chmod +x /usr/local/bin/snapd
 
 ```bash
 # Create a dedicated user for the daemon
-sudo useradd -r -s /bin/false -d /var/lib/snapd snapd
+sudo useradd -r -s /bin/false -d /var/lib/snapperd snapd
 
 # Create necessary directories
 sudo mkdir -p /etc/snapd
-sudo mkdir -p /var/lib/snapd
-sudo chown snapd:snapd /var/lib/snapd
+sudo mkdir -p /var/lib/snapperd
+sudo chown snapd:snapd /var/lib/snapperd
 ```
 
 ### 3. Set Up Database
@@ -92,46 +92,46 @@ GRANT ALL PRIVILEGES ON DATABASE snapd TO snapd;
 
 ```bash
 # Copy example configuration
-sudo cp agent/config.example.yaml /etc/snapd/config.yaml
+sudo cp agent/config.example.yaml /etc/snapperd/config.yaml
 
 # Copy environment file
-sudo cp agent/environment.example /etc/snapd/environment
+sudo cp agent/environment.example /etc/snapperd/environment
 
 # Edit configuration
-sudo nano /etc/snapd/config.yaml
+sudo nano /etc/snapperd/config.yaml
 
 # Edit environment variables (set DB_PASSWORD)
-sudo nano /etc/snapd/environment
+sudo nano /etc/snapperd/environment
 
 # Set secure permissions
-sudo chmod 600 /etc/snapd/config.yaml
-sudo chmod 600 /etc/snapd/environment
-sudo chown snapd:snapd /etc/snapd/config.yaml
-sudo chown snapd:snapd /etc/snapd/environment
+sudo chmod 600 /etc/snapperd/config.yaml
+sudo chmod 600 /etc/snapperd/environment
+sudo chown snapd:snapd /etc/snapperd/config.yaml
+sudo chown snapd:snapd /etc/snapperd/environment
 ```
 
 ### 5. Install Systemd Service
 
 ```bash
 # Copy systemd unit file
-sudo cp agent/snapd.service /etc/systemd/system/
+sudo cp agent/snapperd.service /etc/systemd/system/
 
 # Reload systemd
 sudo systemctl daemon-reload
 
 # Enable the service
-sudo systemctl enable snapd
+sudo systemctl enable snapperd
 
 # Start the service
-sudo systemctl start snapd
+sudo systemctl start snapperd
 
 # Check status
-sudo systemctl status snapd
+sudo systemctl status snapperd
 ```
 
 ## Configuration
 
-The daemon is configured via a YAML file (default: `/etc/snapd/config.yaml`). See `config.example.yaml` for a fully documented example.
+The daemon is configured via a YAML file (default: `/etc/snapperd/config.yaml`). See `config.example.yaml` for a fully documented example.
 
 ### Key Configuration Sections
 
@@ -232,7 +232,7 @@ notifications:
     url: ${DISCORD_WEBHOOK_URL}
 ```
 
-Set environment variables in `/etc/snapd/environment`:
+Set environment variables in `/etc/snapperd/environment`:
 
 ```bash
 DB_PASSWORD=your_secure_password
@@ -269,22 +269,22 @@ Once installed as a systemd service:
 
 ```bash
 # Start the daemon
-sudo systemctl start snapd
+sudo systemctl start snapperd
 
 # Stop the daemon
-sudo systemctl stop snapd
+sudo systemctl stop snapperd
 
 # Restart the daemon
-sudo systemctl restart snapd
+sudo systemctl restart snapperd
 
 # Check status
-sudo systemctl status snapd
+sudo systemctl status snapperd
 
 # View logs
-sudo journalctl -u snapd -f
+sudo journalctl -u snapperd -f
 
 # View recent logs
-sudo journalctl -u snapd -n 100
+sudo journalctl -u snapperd -n 100
 ```
 
 ### Daemon Mode (Manual)
@@ -295,7 +295,7 @@ Run the daemon in background mode with structured JSON logging (suitable for sys
 snapd --config /path/to/config.yaml
 ```
 
-If `--config` is omitted, it defaults to `/etc/snapd/config.yaml`.
+If `--config` is omitted, it defaults to `/etc/snapperd/config.yaml`.
 
 ### Console Mode (Debugging)
 
@@ -361,7 +361,7 @@ Example:
 snapd upload ethereum-mainnet
 
 # With custom config path
-snapd upload arbitrum-one --config /etc/snapd/config.yaml
+snapd upload arbitrum-one --config /etc/snapperd/config.yaml
 ```
 
 This will:
@@ -379,7 +379,7 @@ The daemon is designed to run as a systemd service for production deployments.
 
 ### Service File
 
-A complete systemd unit file is provided at `agent/snapd.service`. Key features:
+A complete systemd unit file is provided at `agent/snapperd.service`. Key features:
 
 - **Automatic restart** on failure with 10-second delay
 - **Dependency management** ensures PostgreSQL is running first
@@ -392,47 +392,47 @@ A complete systemd unit file is provided at `agent/snapd.service`. Key features:
 
 ```bash
 # 1. Copy the service file
-sudo cp agent/snapd.service /etc/systemd/system/
+sudo cp agent/snapperd.service /etc/systemd/system/
 
 # 2. Copy the environment file
-sudo cp agent/environment.example /etc/snapd/environment
-sudo nano /etc/snapd/environment  # Edit with your credentials
+sudo cp agent/environment.example /etc/snapperd/environment
+sudo nano /etc/snapperd/environment  # Edit with your credentials
 
 # 3. Set secure permissions
-sudo chmod 600 /etc/snapd/environment
-sudo chown snapd:snapd /etc/snapd/environment
+sudo chmod 600 /etc/snapperd/environment
+sudo chown snapd:snapd /etc/snapperd/environment
 
 # 4. Reload systemd
 sudo systemctl daemon-reload
 
 # 5. Enable and start
-sudo systemctl enable snapd
-sudo systemctl start snapd
+sudo systemctl enable snapperd
+sudo systemctl start snapperd
 ```
 
 ### Service Management
 
 ```bash
 # Check service status
-sudo systemctl status snapd
+sudo systemctl status snapperd
 
 # View logs (follow mode)
-sudo journalctl -u snapd -f
+sudo journalctl -u snapperd -f
 
 # View logs (last 100 lines)
-sudo journalctl -u snapd -n 100
+sudo journalctl -u snapperd -n 100
 
 # View logs (since boot)
-sudo journalctl -u snapd -b
+sudo journalctl -u snapperd -b
 
 # View logs (specific time range)
-sudo journalctl -u snapd --since "2024-12-09 10:00:00" --until "2024-12-09 11:00:00"
+sudo journalctl -u snapperd --since "2024-12-09 10:00:00" --until "2024-12-09 11:00:00"
 
 # Restart service
-sudo systemctl restart snapd
+sudo systemctl restart snapperd
 
 # Stop service
-sudo systemctl stop snapd
+sudo systemctl stop snapperd
 
 # Disable service (prevent auto-start)
 sudo systemctl disable snapd
@@ -440,10 +440,10 @@ sudo systemctl disable snapd
 
 ### Environment File
 
-The systemd service uses `/etc/snapd/environment` for sensitive configuration:
+The systemd service uses `/etc/snapperd/environment` for sensitive configuration:
 
 ```bash
-# /etc/snapd/environment
+# /etc/snapperd/environment
 DB_PASSWORD=your_secure_password
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 ```
@@ -460,13 +460,13 @@ If the service fails to start:
 
 ```bash
 # Check service status
-sudo systemctl status snapd
+sudo systemctl status snapperd
 
 # View detailed logs
-sudo journalctl -u snapd -n 50 --no-pager
+sudo journalctl -u snapperd -n 50 --no-pager
 
 # Check configuration syntax
-snapd --console --config /etc/snapd/config.yaml
+snapd --console --config /etc/snapperd/config.yaml
 
 # Verify file permissions
 ls -la /etc/snapd/
@@ -494,7 +494,7 @@ The daemon handles SIGTERM and SIGINT signals for graceful shutdown:
 **Triggering Shutdown**:
 ```bash
 # Via systemd
-sudo systemctl stop snapd
+sudo systemctl stop snapperd
 
 # Via signal (if running in console mode)
 kill -TERM <pid>
@@ -751,7 +751,7 @@ go test -v -run TestDiscordModule
 
 **Solution**:
 - Verify PostgreSQL is running: `sudo systemctl status postgresql`
-- Check database credentials in `/etc/snapd/environment`
+- Check database credentials in `/etc/snapperd/environment`
 - Test connection: `psql -h localhost -U snapd -d snapd`
 - Check firewall rules if using remote database
 
@@ -762,7 +762,7 @@ go test -v -run TestDiscordModule
 **Solution**:
 - Check cron expression syntax: https://crontab.guru/
 - Verify node configuration in config.yaml
-- Check logs: `sudo journalctl -u snapd -f`
+- Check logs: `sudo journalctl -u snapperd -f`
 - Ensure `bv` CLI is installed and accessible
 
 ---
@@ -809,7 +809,7 @@ go test -v -run TestDiscordModule
 ### Getting Help
 
 - **Documentation**: See `.kiro/specs/snapshot-daemon/` for detailed specs
-- **Logs**: Check `sudo journalctl -u snapd -f` for runtime issues
+- **Logs**: Check `sudo journalctl -u snapperd -f` for runtime issues
 - **Issues**: Report bugs on GitHub issue tracker
 - **Configuration**: Review `agent/config.example.yaml` for all options
 

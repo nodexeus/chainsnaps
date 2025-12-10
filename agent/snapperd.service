@@ -10,7 +10,7 @@ User=snapd
 Group=snapd
 
 # Path to the snapperd binary
-ExecStart=/usr/local/bin/snapperd --config /etc/snapd/config.yaml
+ExecStart=/usr/local/bin/snapperd --config /etc/snapperd/config.yaml
 
 # Restart policy
 Restart=on-failure
@@ -20,14 +20,14 @@ RestartSec=10s
 # Database password should be set here or in an environment file
 # Environment="DB_PASSWORD=your_secure_password"
 # Or use an environment file:
-EnvironmentFile=-/etc/snapd/environment
+EnvironmentFile=-/etc/snapperd/environment
 
 # Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/snapperd
+ReadWritePaths=/var/lib/snapperd /var/log/snapperd
 
 # Resource limits
 LimitNOFILE=65536

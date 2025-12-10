@@ -94,7 +94,7 @@ func (a *DatabaseAdapter) StoreUploadProgress(ctx context.Context, p upload.Uplo
 
 func main() {
 	// Parse command-line flags
-	configPath := flag.String("config", "/etc/snapd/config.yaml", "Path to configuration file")
+	configPath := flag.String("config", "/etc/snapperd/config.yaml", "Path to configuration file")
 	consoleMode := flag.Bool("console", false, "Run in console mode with human-readable logs")
 	showVersion := flag.Bool("version", false, "Show version information")
 	flag.Parse()

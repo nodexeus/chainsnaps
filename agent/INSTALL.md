@@ -97,16 +97,21 @@ Create a dedicated user for running the daemon:
 sudo useradd -r -s /bin/false snapd
 
 # Create data directory
-sudo mkdir -p /var/lib/snapd
-sudo chown snapd:snapd /var/lib/snapd
-sudo chmod 755 /var/lib/snapd
+sudo mkdir -p /var/lib/snapperd
+sudo chown snapd:snapd /var/lib/snapperd
+sudo chmod 755 /var/lib/snapperd
+
+# Create log directory
+sudo mkdir -p /var/log/snapperd
+sudo chown snapd:snapd /var/log/snapperd
+sudo chmod 755 /var/log/snapperd
 ```
 
 ### Step 4: Create Configuration Directory
 
 ```bash
 # Create configuration directory
-sudo mkdir -p /etc/snapd
+sudo mkdir -p /etc/snapperd
 
 # Set permissions
 sudo chmod 755 /etc/snapd
@@ -118,10 +123,10 @@ sudo chmod 755 /etc/snapd
 
 ```bash
 # Copy example configuration
-sudo cp agent/config.example.yaml /etc/snapd/config.yaml
+sudo cp agent/config.example.yaml /etc/snapperd/config.yaml
 
 # Copy environment file
-sudo cp agent/environment.example /etc/snapd/environment
+sudo cp agent/environment.example /etc/snapperd/environment
 ```
 
 ### Step 2: Edit Configuration
@@ -129,7 +134,7 @@ sudo cp agent/environment.example /etc/snapd/environment
 Edit the main configuration file:
 
 ```bash
-sudo nano /etc/snapd/config.yaml
+sudo nano /etc/snapperd/config.yaml
 ```
 
 **Minimum required changes**:
@@ -170,7 +175,7 @@ nodes:
 Edit the environment file:
 
 ```bash
-sudo nano /etc/snapd/environment
+sudo nano /etc/snapperd/environment
 ```
 
 **Required**:
@@ -190,12 +195,12 @@ Set appropriate permissions to protect sensitive data:
 
 ```bash
 # Restrict access to configuration files
-sudo chmod 600 /etc/snapd/config.yaml
-sudo chmod 600 /etc/snapd/environment
+sudo chmod 600 /etc/snapperd/config.yaml
+sudo chmod 600 /etc/snapperd/environment
 
 # Set ownership
-sudo chown snapd:snapd /etc/snapd/config.yaml
-sudo chown snapd:snapd /etc/snapd/environment
+sudo chown snapd:snapd /etc/snapperd/config.yaml
+sudo chown snapd:snapd /etc/snapperd/environment
 ```
 
 ## Database Setup
@@ -291,10 +296,10 @@ Expected output: `1` (one row)
 
 ```bash
 # Copy the service file
-sudo cp agent/snapd.service /etc/systemd/system/
+sudo cp agent/snapperd.service /etc/systemd/system/
 
 # Verify the file
-cat /etc/systemd/system/snapd.service
+cat /etc/systemd/system/snapperd.service
 ```
 
 ### Step 2: Reload Systemd
@@ -308,7 +313,7 @@ sudo systemctl daemon-reload
 
 ```bash
 # Enable service to start on boot
-sudo systemctl enable snapd
+sudo systemctl enable snapperd
 
 # Verify it's enabled
 sudo systemctl is-enabled snapd
@@ -318,10 +323,10 @@ sudo systemctl is-enabled snapd
 
 ```bash
 # Start the service
-sudo systemctl start snapd
+sudo systemctl start snapperd
 
 # Check status
-sudo systemctl status snapd
+sudo systemctl status snapperd
 ```
 
 Expected output should show "active (running)".
@@ -332,7 +337,7 @@ Expected output should show "active (running)".
 
 ```bash
 # Check if service is running
-sudo systemctl status snapd
+sudo systemctl status snapperd
 
 # Should show:
 # Active: active (running)
@@ -342,10 +347,10 @@ sudo systemctl status snapd
 
 ```bash
 # View recent logs
-sudo journalctl -u snapd -n 50
+sudo journalctl -u snapperd -n 50
 
 # Follow logs in real-time
-sudo journalctl -u snapd -f
+sudo journalctl -u snapperd -f
 ```
 
 Look for:
@@ -358,10 +363,10 @@ Look for:
 
 ```bash
 # Check version
-snapd version
+snapperd version
 
 # Check status
-snapd status --config /etc/snapd/config.yaml
+snapperd status --config /etc/snapperd/config.yaml
 
 # Should show either running uploads or "No active uploads"
 ```
@@ -370,7 +375,7 @@ snapd status --config /etc/snapd/config.yaml
 
 ```bash
 # Check if daemon can connect to database
-sudo journalctl -u snapd | grep -i database
+sudo journalctl -u snapperd | grep -i database
 
 # Should show successful connection messages
 ```
@@ -379,10 +384,10 @@ sudo journalctl -u snapd | grep -i database
 
 ```bash
 # Trigger a manual upload for a configured node
-snapd upload ethereum-mainnet --config /etc/snapd/config.yaml
+snapperd upload ethereum-mainnet --config /etc/snapperd/config.yaml
 
 # Check status
-snapd status --config /etc/snapd/config.yaml
+snapperd status --config /etc/snapperd/config.yaml
 ```
 
 ## Post-Installation
@@ -392,7 +397,7 @@ snapd status --config /etc/snapd/config.yaml
 Create a logrotate configuration:
 
 ```bash
-sudo nano /etc/logrotate.d/snapd
+sudo nano /etc/logrotate.d/snapperd
 ```
 
 Add:
@@ -420,7 +425,7 @@ Consider setting up monitoring for:
 - Service health: `systemctl status snapd`
 - Database connectivity
 - Upload success/failure rates
-- Disk space in `/var/lib/snapd`
+- Disk space in `/var/lib/snapperd`
 - Log file sizes
 
 ### Configure Firewall (if applicable)
@@ -444,8 +449,8 @@ Create backups of your configuration:
 sudo mkdir -p /var/backups/snapd
 
 # Backup configuration
-sudo cp /etc/snapd/config.yaml /var/backups/snapd/config.yaml.backup
-sudo cp /etc/snapd/environment /var/backups/snapd/environment.backup
+sudo cp /etc/snapperd/config.yaml /var/backups/snapd/config.yaml.backup
+sudo cp /etc/snapperd/environment /var/backups/snapd/environment.backup
 
 # Set permissions
 sudo chmod 600 /var/backups/snapd/*
@@ -457,13 +462,13 @@ sudo chmod 600 /var/backups/snapd/*
 
 1. **Stop the service**:
    ```bash
-   sudo systemctl stop snapd
+   sudo systemctl stop snapperd
    ```
 
 2. **Backup current installation**:
    ```bash
    sudo cp /usr/local/bin/snapd /usr/local/bin/snapd.backup
-   sudo cp /etc/snapd/config.yaml /etc/snapd/config.yaml.backup
+   sudo cp /etc/snapperd/config.yaml /etc/snapperd/config.yaml.backup
    ```
 
 3. **Install new binary**:
@@ -476,24 +481,24 @@ sudo chmod 600 /var/backups/snapd/*
 4. **Check for configuration changes**:
    ```bash
    # Compare with new example config
-   diff /etc/snapd/config.yaml agent/config.example.yaml
+   diff /etc/snapperd/config.yaml agent/config.example.yaml
    ```
 
 5. **Update configuration if needed**:
    ```bash
-   sudo nano /etc/snapd/config.yaml
+   sudo nano /etc/snapperd/config.yaml
    ```
 
 6. **Restart the service**:
    ```bash
-   sudo systemctl start snapd
-   sudo systemctl status snapd
+   sudo systemctl start snapperd
+   sudo systemctl status snapperd
    ```
 
 7. **Verify upgrade**:
    ```bash
    snapd version
-   sudo journalctl -u snapd -n 50
+   sudo journalctl -u snapperd -n 50
    ```
 
 ### Rollback (if needed)
@@ -502,14 +507,14 @@ If the upgrade fails:
 
 ```bash
 # Stop the service
-sudo systemctl stop snapd
+sudo systemctl stop snapperd
 
 # Restore backup
 sudo cp /usr/local/bin/snapd.backup /usr/local/bin/snapd
-sudo cp /etc/snapd/config.yaml.backup /etc/snapd/config.yaml
+sudo cp /etc/snapperd/config.yaml.backup /etc/snapperd/config.yaml
 
 # Restart service
-sudo systemctl start snapd
+sudo systemctl start snapperd
 ```
 
 ## Uninstallation
@@ -518,13 +523,13 @@ sudo systemctl start snapd
 
 1. **Stop and disable the service**:
    ```bash
-   sudo systemctl stop snapd
+   sudo systemctl stop snapperd
    sudo systemctl disable snapd
    ```
 
 2. **Remove systemd unit file**:
    ```bash
-   sudo rm /etc/systemd/system/snapd.service
+   sudo rm /etc/systemd/system/snapperd.service
    sudo systemctl daemon-reload
    ```
 
@@ -540,7 +545,7 @@ sudo systemctl start snapd
 
 5. **Remove data directory** (optional):
    ```bash
-   sudo rm -rf /var/lib/snapd
+   sudo rm -rf /var/lib/snapperd
    ```
 
 6. **Remove system user** (optional):
@@ -560,13 +565,13 @@ To remove the daemon but keep configuration and data:
 
 ```bash
 # Stop and disable service
-sudo systemctl stop snapd
+sudo systemctl stop snapperd
 sudo systemctl disable snapd
 
 # Remove binary only
 sudo rm /usr/local/bin/snapd
 
-# Keep /etc/snapd and /var/lib/snapd for future reinstallation
+# Keep /etc/snapd and /var/lib/snapperd for future reinstallation
 ```
 
 ## Troubleshooting Installation
@@ -596,7 +601,7 @@ ls -la /usr/local/bin/snapd
 sudo chmod +x /usr/local/bin/snapd
 
 # Check service file permissions
-ls -la /etc/systemd/system/snapd.service
+ls -la /etc/systemd/system/snapperd.service
 ```
 
 ### Issue: Database connection failed
@@ -609,8 +614,8 @@ psql -h localhost -U snapd -d snapd
 # Check PostgreSQL is running
 sudo systemctl status postgresql
 
-# Verify credentials in /etc/snapd/environment
-sudo cat /etc/snapd/environment | grep DB_PASSWORD
+# Verify credentials in /etc/snapperd/environment
+sudo cat /etc/snapperd/environment | grep DB_PASSWORD
 ```
 
 ### Issue: "permission denied for schema public" during migration
@@ -625,7 +630,33 @@ This error occurs when the snapd user doesn't have permission to create tables.
 ./agent/fix-db-permissions.sh
 
 # Restart the daemon
-sudo systemctl restart snapd
+sudo systemctl restart snapperd
+```
+
+### Issue: "Failed to set up mount namespacing" or "No such file or directory"
+
+This error occurs when required directories don't exist for the systemd service.
+
+**Solution**:
+
+**Option 1: Use the provided script (easiest)**:
+```bash
+# Run the directory fix script
+./agent/fix-systemd-directories.sh
+
+# Restart the daemon
+sudo systemctl restart snapperd
+```
+
+**Option 2: Manual fix**:
+```bash
+# Create required directories
+sudo mkdir -p /var/lib/snapperd /var/log/snapperd /etc/snapperd
+sudo chown snapd:snapd /var/lib/snapperd /var/log/snapperd
+sudo chmod 755 /var/lib/snapperd /var/log/snapperd /etc/snapperd
+
+# Restart the daemon
+sudo systemctl restart snapperd
 ```
 
 **Option 2: Manual fix**:
@@ -638,7 +669,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO snapd;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO snapd;"
 
 # Restart the daemon
-sudo systemctl restart snapd
+sudo systemctl restart snapperd
 ```
 
 **Alternative solution** - Make snapd the database owner:
@@ -651,14 +682,14 @@ sudo -u postgres psql -c "ALTER DATABASE snapd OWNER TO snapd;"
 **Solution**:
 ```bash
 # Check file exists
-ls -la /etc/snapd/config.yaml
+ls -la /etc/snapperd/config.yaml
 
 # Check permissions
-sudo chmod 600 /etc/snapd/config.yaml
-sudo chown snapd:snapd /etc/snapd/config.yaml
+sudo chmod 600 /etc/snapperd/config.yaml
+sudo chown snapd:snapd /etc/snapperd/config.yaml
 
 # Verify path in systemd unit
-grep ExecStart /etc/systemd/system/snapd.service
+grep ExecStart /etc/systemd/system/snapperd.service
 ```
 
 ## Next Steps
@@ -681,7 +712,7 @@ For more information, see:
 
 If you encounter issues not covered in this guide:
 
-1. Check the logs: `sudo journalctl -u snapd -f`
+1. Check the logs: `sudo journalctl -u snapperd -f`
 2. Review the troubleshooting section in README.md
 3. Verify your configuration against config.example.yaml
 4. Report issues on the GitHub issue tracker

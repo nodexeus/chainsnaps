@@ -40,7 +40,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO snapd;
 The daemon automatically runs migrations on startup. Just start the daemon:
 
 ```bash
-snapd --config /etc/snapd/config.yaml
+snapd --config /etc/snapperd/config.yaml
 ```
 
 **Option B: Manual**
@@ -352,7 +352,7 @@ If automatic migrations fail:
 
 2. Check daemon logs:
    ```bash
-   sudo journalctl -u snapd | grep -i migration
+   sudo journalctl -u snapperd | grep -i migration
    ```
 
 3. Manually apply schema:
