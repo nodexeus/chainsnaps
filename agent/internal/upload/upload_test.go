@@ -487,16 +487,14 @@ func TestCheckUploadStatus_ErrorHandling(t *testing.T) {
 
 	status, err := manager.CheckUploadStatus(context.Background(), "test-node")
 
-	if err != nil {
-		t.Errorf("Expected no error when command fails (should treat as not running), got: %v", err)
+	// Generic command failures should return an error (not treat as "not running")
+	if err == nil {
+		t.Error("Expected error when command execution fails with generic error")
 	}
 
-	if status.IsRunning {
-		t.Error("Expected IsRunning to be false when command fails")
-	}
-
-	if status.Progress["error"] == nil {
-		t.Error("Expected error information to be stored in progress")
+	// Status should be nil when there's an error
+	if status != nil {
+		t.Error("Expected status to be nil when command execution fails")
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"github.com/nodexeus/agent/internal/database"
 	"github.com/nodexeus/agent/internal/notification"
 	"github.com/nodexeus/agent/internal/protocol"
+	"github.com/nodexeus/agent/internal/upload"
 	"github.com/robfig/cron/v3"
 	"github.com/sirupsen/logrus"
 )
@@ -144,6 +145,7 @@ type UploadManager interface {
 	ShouldSkipUpload(ctx context.Context, nodeName string) (bool, error)
 	InitiateUpload(ctx context.Context, nodeName string, triggerType string) (int64, error)
 	MonitorUploadProgress(ctx context.Context, uploadID int64, nodeName string) error
+	CheckUploadStatus(ctx context.Context, nodeName string) (*upload.UploadStatus, error)
 }
 
 // Database interface for database operations
@@ -151,6 +153,7 @@ type Database interface {
 	StoreNodeMetrics(ctx context.Context, metrics database.NodeMetrics) error
 	CreateUpload(ctx context.Context, upload database.Upload) (int64, error)
 	GetRunningUploads(ctx context.Context) ([]database.Upload, error)
+	GetRunningUploadForNode(ctx context.Context, nodeName string) (*database.Upload, error)
 }
 
 // NodeUploadJob handles the upload workflow for a single node
@@ -377,12 +380,14 @@ type UploadMonitorJob struct {
 	uploadManager UploadManager
 	db            Database
 	logger        *logrus.Logger
+	nodeConfigs   map[string]config.NodeConfig
 }
 
 // NewUploadMonitorJob creates a new upload monitor job
 func NewUploadMonitorJob(
 	uploadManager UploadManager,
 	db Database,
+	nodeConfigs map[string]config.NodeConfig,
 	logger *logrus.Logger,
 ) *UploadMonitorJob {
 	if logger == nil {
@@ -393,6 +398,7 @@ func NewUploadMonitorJob(
 		uploadManager: uploadManager,
 		db:            db,
 		logger:        logger,
+		nodeConfigs:   nodeConfigs,
 	}
 }
 
@@ -401,9 +407,81 @@ func (j *UploadMonitorJob) Run(ctx context.Context) error {
 	j.logger.WithFields(logrus.Fields{
 		"component": "scheduler",
 		"job":       "upload_monitor",
-	}).Debug("Starting upload monitor job")
+	}).Debug("Starting comprehensive upload monitor job")
 
-	// Get all running uploads
+	// Step 1: Check all configured nodes for running uploads (even if not in database)
+	discoveredUploads := make(map[string]bool) // nodeName -> isRunning
+	var discoveryWg sync.WaitGroup
+
+	for nodeName := range j.nodeConfigs {
+		discoveryWg.Add(1)
+		go func(node string) {
+			defer discoveryWg.Done()
+
+			// Check if this node has a running upload
+			status, err := j.uploadManager.CheckUploadStatus(ctx, node)
+			if err != nil {
+				j.logger.WithFields(logrus.Fields{
+					"component": "scheduler",
+					"node":      node,
+					"error":     err.Error(),
+				}).Warn("Failed to check upload status for node")
+				return
+			}
+
+			discoveredUploads[node] = status.IsRunning
+
+			// If upload is running but not in database, create a record
+			if status.IsRunning {
+				existingUpload, err := j.db.GetRunningUploadForNode(ctx, node)
+				if err != nil {
+					j.logger.WithFields(logrus.Fields{
+						"component": "scheduler",
+						"node":      node,
+						"error":     err.Error(),
+					}).Warn("Failed to check database for existing upload")
+					return
+				}
+
+				if existingUpload == nil {
+					// Create database record for externally started upload
+					// Convert upload.JSONB to database.JSONB
+					dbProgress := make(database.JSONB)
+					for k, v := range status.Progress {
+						dbProgress[k] = v
+					}
+
+					upload := database.Upload{
+						NodeName:    node,
+						StartedAt:   time.Now(),
+						Status:      "running",
+						Progress:    dbProgress,
+						TriggerType: "external",
+					}
+
+					uploadID, err := j.db.CreateUpload(ctx, upload)
+					if err != nil {
+						j.logger.WithFields(logrus.Fields{
+							"component": "scheduler",
+							"node":      node,
+							"error":     err.Error(),
+						}).Error("Failed to create database record for external upload")
+						return
+					}
+
+					j.logger.WithFields(logrus.Fields{
+						"component": "scheduler",
+						"node":      node,
+						"upload_id": uploadID,
+					}).Info("Discovered and registered external upload")
+				}
+			}
+		}(nodeName)
+	}
+
+	discoveryWg.Wait()
+
+	// Step 2: Get all running uploads from database (including newly discovered ones)
 	runningUploads, err := j.db.GetRunningUploads(ctx)
 	if err != nil {
 		j.logger.WithFields(logrus.Fields{
@@ -425,12 +503,12 @@ func (j *UploadMonitorJob) Run(ctx context.Context) error {
 		"count":     len(runningUploads),
 	}).Info("Monitoring running uploads")
 
-	// Monitor each upload independently (node isolation)
-	var wg sync.WaitGroup
+	// Step 3: Monitor each upload independently (node isolation)
+	var monitorWg sync.WaitGroup
 	for _, upload := range runningUploads {
-		wg.Add(1)
+		monitorWg.Add(1)
 		go func(u database.Upload) {
-			defer wg.Done()
+			defer monitorWg.Done()
 
 			// Each upload is monitored independently to ensure node isolation
 			if err := j.uploadManager.MonitorUploadProgress(ctx, u.ID, u.NodeName); err != nil {
@@ -445,11 +523,11 @@ func (j *UploadMonitorJob) Run(ctx context.Context) error {
 		}(upload)
 	}
 
-	wg.Wait()
+	monitorWg.Wait()
 
 	j.logger.WithFields(logrus.Fields{
 		"component": "scheduler",
-	}).Debug("Upload monitor job completed")
+	}).Debug("Comprehensive upload monitor job completed")
 
 	return nil
 }

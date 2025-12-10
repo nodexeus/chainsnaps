@@ -81,31 +81,50 @@ func (m *Manager) CheckUploadStatus(ctx context.Context, nodeName string) (*Uplo
 	// Execute: bv node job <node> info upload
 	stdout, stderr, err := m.executor.Execute(ctx, "bv", "node", "job", nodeName, "info", "upload")
 	if err != nil {
-		// If the command fails, it likely means no job exists or job not found
-		// This should be treated as "not running" rather than an error
-		m.logger.WithFields(logrus.Fields{
-			"component": "upload",
-			"node":      nodeName,
-			"error":     err.Error(),
-			"stderr":    stderr,
-		}).Debug("Upload status command failed, treating as not running")
-
-		// Parse the error output to extract any useful information
+		// Check if this is a "job not found" type error vs other system errors
 		errorOutput := stderr
 		if errorOutput == "" {
 			errorOutput = stdout
 		}
 
-		status := &UploadStatus{
-			IsRunning: false,
-			Progress: JSONB{
-				"error":      err.Error(),
-				"stderr":     stderr,
-				"stdout":     stdout,
-				"raw_output": errorOutput,
-			},
+		lowerError := strings.ToLower(errorOutput)
+		lowerErrMsg := strings.ToLower(err.Error())
+
+		// Only treat specific "job not found" errors as "not running"
+		if strings.Contains(lowerError, "job 'upload' not found") ||
+			strings.Contains(lowerError, "unknown status") ||
+			strings.Contains(lowerError, "job_status failed") ||
+			strings.Contains(lowerErrMsg, "job 'upload' not found") ||
+			strings.Contains(lowerErrMsg, "unknown status") {
+
+			m.logger.WithFields(logrus.Fields{
+				"component": "upload",
+				"node":      nodeName,
+				"error":     err.Error(),
+				"stderr":    stderr,
+			}).Debug("Upload job not found, treating as not running")
+
+			status := &UploadStatus{
+				IsRunning: false,
+				Progress: JSONB{
+					"error":      err.Error(),
+					"stderr":     stderr,
+					"stdout":     stdout,
+					"raw_output": errorOutput,
+				},
+			}
+			return status, nil
 		}
-		return status, nil
+
+		// For other errors (like "Read-only file system"), return the error
+		// Don't assume the upload status based on command execution issues
+		m.logger.WithFields(logrus.Fields{
+			"component": "upload",
+			"node":      nodeName,
+			"error":     err.Error(),
+			"stderr":    stderr,
+		}).Error("Failed to check upload status")
+		return nil, fmt.Errorf("failed to check upload status: %w", err)
 	}
 
 	// Parse the status from stdout
