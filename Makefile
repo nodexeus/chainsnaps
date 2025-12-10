@@ -55,9 +55,9 @@ scan:
 
 build-agent:
 	@echo "Building snapshot daemon..."
-	cd agent/cmd/snapd && go generate
-	cd agent && go build -o bin/snapd ./cmd/snapd
-	@echo "Binary built at agent/bin/snapd"
+	cd agent/cmd/snapperd && go generate
+	cd agent && go build -o bin/snapperd ./cmd/snapperd
+	@echo "Binary built at agent/bin/snapperd"
 
 test-agent:
 	@echo "Running agent tests..."

@@ -101,7 +101,7 @@ func main() {
 
 	// Handle version command
 	if *showVersion {
-		fmt.Printf("snapd version %s\n", version)
+		fmt.Printf("snapperd version %s\n", version)
 		fmt.Printf("Build date: %s\n", buildDate)
 		fmt.Printf("Commit: %s\n", commitHash)
 		os.Exit(0)
@@ -121,7 +121,7 @@ func main() {
 			}
 			os.Exit(handleUploadCommand(*configPath, *consoleMode, args[1]))
 		case "version":
-			fmt.Printf("snapd version %s\n", version)
+			fmt.Printf("snapperd version %s\n", version)
 			fmt.Printf("Build date: %s\n", buildDate)
 			fmt.Printf("Commit: %s\n", commitHash)
 			os.Exit(0)
@@ -373,7 +373,7 @@ func runDaemon(configPath string, consoleMode bool) int {
 	}
 }
 
-// handleStatusCommand handles the 'snapd status' subcommand
+// handleStatusCommand handles the 'snapperd status' subcommand
 func handleStatusCommand(configPath string, consoleMode bool) int {
 	// Initialize logger
 	log := logger.New(logger.Config{
@@ -450,7 +450,7 @@ func handleStatusCommand(configPath string, consoleMode bool) int {
 	return 0
 }
 
-// handleUploadCommand handles the 'snapd upload <node>' subcommand
+// handleUploadCommand handles the 'snapperd upload <node>' subcommand
 func handleUploadCommand(configPath string, consoleMode bool, nodeName string) int {
 	// Initialize logger
 	log := logger.New(logger.Config{
