@@ -308,6 +308,11 @@ func (db *DB) getWithRetry(ctx context.Context, dest interface{}, query string, 
 			return nil
 		}
 
+		// Don't retry on sql.ErrNoRows - it's not a transient error
+		if err == sql.ErrNoRows {
+			return err
+		}
+
 		lastErr = err
 	}
 

@@ -528,8 +528,8 @@ func handleUploadCommand(configPath string, consoleMode bool, nodeName string) i
 	dbAdapter := &DatabaseAdapter{db: db}
 	uploadMgr := upload.NewManager(exec, dbAdapter, log.Logger)
 
-	// Check if upload is already running
-	runningUpload, err := db.GetRunningUploadForNode(ctx, nodeName)
+	// Check if upload is already running (checks both database and actual command status)
+	shouldSkip, err := uploadMgr.ShouldSkipUpload(ctx, nodeName)
 	if err != nil {
 		log.WithFields(logrus.Fields{
 			"component": "upload",
@@ -539,8 +539,8 @@ func handleUploadCommand(configPath string, consoleMode bool, nodeName string) i
 		return 1
 	}
 
-	if runningUpload != nil {
-		fmt.Fprintf(os.Stderr, "Error: upload already running for node '%s' (ID: %d)\n", nodeName, runningUpload.ID)
+	if shouldSkip {
+		fmt.Fprintf(os.Stderr, "Error: upload already running for node '%s'\n", nodeName)
 		return 1
 	}
 
