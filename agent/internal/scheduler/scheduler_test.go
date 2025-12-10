@@ -41,9 +41,11 @@ func (m *mockJob) getRunCount() int {
 }
 
 type mockUploadManager struct {
-	shouldSkipFunc      func(ctx context.Context, nodeName string) (bool, error)
-	initiateUploadFunc  func(ctx context.Context, nodeName string, triggerType string) (int64, error)
-	monitorProgressFunc func(ctx context.Context, uploadID int64, nodeName string) error
+	shouldSkipFunc                     func(ctx context.Context, nodeName string) (bool, error)
+	initiateUploadFunc                 func(ctx context.Context, nodeName string, triggerType string) (int64, error)
+	initiateUploadWithProtocolDataFunc func(ctx context.Context, nodeName string, triggerType string, protocol string, nodeType string, protocolData map[string]interface{}) (int64, error)
+	monitorProgressFunc                func(ctx context.Context, uploadID int64, nodeName string) error
+	checkUploadStatusFunc              func(ctx context.Context, nodeName string) (*upload.UploadStatus, error)
 }
 
 func (m *mockUploadManager) ShouldSkipUpload(ctx context.Context, nodeName string) (bool, error) {
@@ -60,6 +62,14 @@ func (m *mockUploadManager) InitiateUpload(ctx context.Context, nodeName string,
 	return 1, nil
 }
 
+func (m *mockUploadManager) InitiateUploadWithProtocolData(ctx context.Context, nodeName string, triggerType string, protocol string, nodeType string, protocolData map[string]interface{}) (int64, error) {
+	if m.initiateUploadWithProtocolDataFunc != nil {
+		return m.initiateUploadWithProtocolDataFunc(ctx, nodeName, triggerType, protocol, nodeType, protocolData)
+	}
+	// Fallback to regular InitiateUpload method
+	return m.InitiateUpload(ctx, nodeName, triggerType)
+}
+
 func (m *mockUploadManager) MonitorUploadProgress(ctx context.Context, uploadID int64, nodeName string) error {
 	if m.monitorProgressFunc != nil {
 		return m.monitorProgressFunc(ctx, uploadID, nodeName)
@@ -68,20 +78,15 @@ func (m *mockUploadManager) MonitorUploadProgress(ctx context.Context, uploadID 
 }
 
 func (m *mockUploadManager) CheckUploadStatus(ctx context.Context, nodeName string) (*upload.UploadStatus, error) {
+	if m.checkUploadStatusFunc != nil {
+		return m.checkUploadStatusFunc(ctx, nodeName)
+	}
 	return &upload.UploadStatus{IsRunning: false}, nil
 }
 
 type mockDatabase struct {
-	storeMetricsFunc      func(ctx context.Context, metrics database.NodeMetrics) error
 	createUploadFunc      func(ctx context.Context, upload database.Upload) (int64, error)
 	getRunningUploadsFunc func(ctx context.Context) ([]database.Upload, error)
-}
-
-func (m *mockDatabase) StoreNodeMetrics(ctx context.Context, metrics database.NodeMetrics) error {
-	if m.storeMetricsFunc != nil {
-		return m.storeMetricsFunc(ctx, metrics)
-	}
-	return nil
 }
 
 func (m *mockDatabase) CreateUpload(ctx context.Context, upload database.Upload) (int64, error) {
@@ -103,6 +108,15 @@ func (m *mockDatabase) GetRunningUploads(ctx context.Context) ([]database.Upload
 }
 
 func (m *mockDatabase) GetRunningUploadForNode(ctx context.Context, nodeName string) (*database.Upload, error) {
+	return nil, nil
+}
+
+func (m *mockDatabase) UpsertRunningUpload(ctx context.Context, upload database.Upload) (int64, error) {
+	// For tests, just return a mock ID
+	return 123, nil
+}
+
+func (m *mockDatabase) GetLatestCompletedUploadForNode(ctx context.Context, nodeName string) (*database.Upload, error) {
 	return nil, nil
 }
 
@@ -291,29 +305,43 @@ func TestNodeUploadJob_FullWorkflow(t *testing.T) {
 	metricsStored := false
 	uploadInitiated := false
 
+	// Declare db first so it can be used in uploadManager closure
+	db := &mockDatabase{
+		createUploadFunc: func(ctx context.Context, upload database.Upload) (int64, error) {
+			metricsStored = true
+			if upload.NodeName != "test-node" {
+				t.Errorf("Expected node name 'test-node', got '%s'", upload.NodeName)
+			}
+			if upload.Protocol != "ethereum" {
+				t.Errorf("Expected protocol 'ethereum', got '%s'", upload.Protocol)
+			}
+			return 1, nil
+		},
+	}
+
 	uploadManager := &mockUploadManager{
 		shouldSkipFunc: func(ctx context.Context, nodeName string) (bool, error) {
 			return false, nil // Upload not running
 		},
-		initiateUploadFunc: func(ctx context.Context, nodeName string, triggerType string) (int64, error) {
+		initiateUploadWithProtocolDataFunc: func(ctx context.Context, nodeName string, triggerType string, protocol string, nodeType string, protocolData map[string]interface{}) (int64, error) {
 			uploadInitiated = true
 			if triggerType != "scheduled" {
 				t.Errorf("Expected trigger type 'scheduled', got '%s'", triggerType)
 			}
-			return 123, nil
-		},
-	}
-
-	db := &mockDatabase{
-		storeMetricsFunc: func(ctx context.Context, metrics database.NodeMetrics) error {
-			metricsStored = true
-			if metrics.NodeName != "test-node" {
-				t.Errorf("Expected node name 'test-node', got '%s'", metrics.NodeName)
+			if protocol != "ethereum" {
+				t.Errorf("Expected protocol 'ethereum', got '%s'", protocol)
 			}
-			if metrics.Protocol != "ethereum" {
-				t.Errorf("Expected protocol 'ethereum', got '%s'", metrics.Protocol)
+			// Simulate what the real upload manager does - call CreateUpload on the database
+			upload := database.Upload{
+				NodeName:     nodeName,
+				Protocol:     protocol,
+				NodeType:     "archive", // Mock node type
+				StartedAt:    time.Now(),
+				Status:       "running",
+				TriggerType:  triggerType,
+				ProtocolData: database.JSONB(protocolData),
 			}
-			return nil
+			return db.CreateUpload(ctx, upload)
 		},
 	}
 
@@ -579,4 +607,157 @@ func TestUploadMonitorJob_NodeIsolation(t *testing.T) {
 	if len(monitoredUploads) != 3 {
 		t.Errorf("Expected 3 uploads to be monitored, got %d", len(monitoredUploads))
 	}
+}
+func TestUploadMonitorJob_ExternalUploadDiscovery(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.FatalLevel)
+
+	var createdUploads []database.Upload
+	var mu sync.Mutex
+
+	// Mock upload manager that reports a running upload for "external-node"
+	uploadManager := &mockUploadManager{
+		checkUploadStatusFunc: func(ctx context.Context, nodeName string) (*upload.UploadStatus, error) {
+			if nodeName == "external-node" {
+				return &upload.UploadStatus{
+					IsRunning: true,
+					Progress: upload.JSONB{
+						"status":   "running",
+						"progress": "50.0%",
+					},
+				}, nil
+			}
+			return &upload.UploadStatus{IsRunning: false}, nil
+		},
+		monitorProgressFunc: func(ctx context.Context, uploadID int64, nodeName string) error {
+			return nil
+		},
+	}
+
+	// Mock database that tracks created uploads
+	db := &mockDatabase{
+		getRunningUploadsFunc: func(ctx context.Context) ([]database.Upload, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			// Return existing tracked uploads (none initially)
+			return createdUploads, nil
+		},
+		createUploadFunc: func(ctx context.Context, upload database.Upload) (int64, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			upload.ID = int64(len(createdUploads) + 1)
+			createdUploads = append(createdUploads, upload)
+			return upload.ID, nil
+		},
+	}
+
+	// Configure nodes - one with external upload, one without
+	nodeConfigs := map[string]config.NodeConfig{
+		"external-node": {Protocol: "ethereum", Type: "execution"},
+		"normal-node":   {Protocol: "ethereum", Type: "execution"},
+	}
+
+	job := NewUploadMonitorJob(uploadManager, db, nodeConfigs, logger)
+
+	ctx := context.Background()
+
+	// First run - should discover external upload
+	err := job.Run(ctx)
+	if err != nil {
+		t.Errorf("Expected no error on first run, got: %v", err)
+	}
+
+	mu.Lock()
+	if len(createdUploads) != 1 {
+		t.Errorf("Expected 1 external upload to be created, got %d", len(createdUploads))
+	}
+	if len(createdUploads) > 0 {
+		upload := createdUploads[0]
+		if upload.NodeName != "external-node" {
+			t.Errorf("Expected external upload for 'external-node', got '%s'", upload.NodeName)
+		}
+		if upload.TriggerType != "external" {
+			t.Errorf("Expected trigger_type 'external', got '%s'", upload.TriggerType)
+		}
+	}
+	mu.Unlock()
+
+	// Second run - should NOT create duplicate upload
+	err = job.Run(ctx)
+	if err != nil {
+		t.Errorf("Expected no error on second run, got: %v", err)
+	}
+
+	mu.Lock()
+	if len(createdUploads) != 1 {
+		t.Errorf("Expected still only 1 upload after second run, got %d", len(createdUploads))
+	}
+	mu.Unlock()
+}
+
+func TestUploadMonitorJob_DoesNotDuplicateTrackedUploads(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.FatalLevel)
+
+	var createdUploads []database.Upload
+	var mu sync.Mutex
+
+	// Mock upload manager that reports running upload
+	uploadManager := &mockUploadManager{
+		checkUploadStatusFunc: func(ctx context.Context, nodeName string) (*upload.UploadStatus, error) {
+			return &upload.UploadStatus{
+				IsRunning: true,
+				Progress: upload.JSONB{
+					"status":   "running",
+					"progress": "75.0%",
+				},
+			}, nil
+		},
+		monitorProgressFunc: func(ctx context.Context, uploadID int64, nodeName string) error {
+			return nil
+		},
+	}
+
+	// Mock database with existing tracked upload
+	existingUpload := database.Upload{
+		ID:          83,
+		NodeName:    "tracked-node",
+		Protocol:    "ethereum",
+		NodeType:    "execution",
+		Status:      "running",
+		TriggerType: "scheduled",
+		StartedAt:   time.Now().Add(-1 * time.Hour),
+	}
+
+	db := &mockDatabase{
+		getRunningUploadsFunc: func(ctx context.Context) ([]database.Upload, error) {
+			return []database.Upload{existingUpload}, nil
+		},
+		createUploadFunc: func(ctx context.Context, upload database.Upload) (int64, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			upload.ID = int64(len(createdUploads) + 100)
+			createdUploads = append(createdUploads, upload)
+			return upload.ID, nil
+		},
+	}
+
+	// Configure node that already has tracked upload
+	nodeConfigs := map[string]config.NodeConfig{
+		"tracked-node": {Protocol: "ethereum", Type: "execution"},
+	}
+
+	job := NewUploadMonitorJob(uploadManager, db, nodeConfigs, logger)
+
+	ctx := context.Background()
+	err := job.Run(ctx)
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+
+	mu.Lock()
+	if len(createdUploads) != 0 {
+		t.Errorf("Expected no new uploads to be created for already tracked node, got %d", len(createdUploads))
+	}
+	mu.Unlock()
 }

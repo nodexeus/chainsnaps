@@ -2,34 +2,23 @@
 -- This file can be used to manually create the database schema
 -- Alternatively, the daemon will automatically run migrations on startup
 
--- Node Metrics Table
--- Stores collected metrics from blockchain nodes
-CREATE TABLE IF NOT EXISTS node_metrics (
+-- Uploads Table
+-- Tracks snapshot upload operations and the blockchain state they contain
+CREATE TABLE IF NOT EXISTS uploads (
     id BIGSERIAL PRIMARY KEY,
     node_name VARCHAR(255) NOT NULL,
     protocol VARCHAR(50) NOT NULL,
     node_type VARCHAR(50),
-    collected_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    metrics JSONB NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_node_metrics_node_time 
-ON node_metrics (node_name, collected_at DESC);
-
--- Uploads Table
--- Tracks snapshot upload operations
-CREATE TABLE IF NOT EXISTS uploads (
-    id BIGSERIAL PRIMARY KEY,
-    node_name VARCHAR(255) NOT NULL,
     started_at TIMESTAMP NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMP,
     status VARCHAR(50) NOT NULL,
-    progress JSONB,
-    progress_percent DECIMAL(5,2),  -- e.g., 8.96, 100.00
-    chunks_completed INTEGER,       -- e.g., 284
-    chunks_total INTEGER,          -- e.g., 3170
     trigger_type VARCHAR(20) NOT NULL,
-    error_message TEXT
+    error_message TEXT,
+    -- Blockchain state data captured before upload (what the snapshot contains)
+    protocol_data JSONB NOT NULL,  -- Full protocol metrics (latest_block, latest_slot, earliest_blob, etc)
+    -- Completion metadata
+    total_chunks INTEGER,          -- Total chunks in completed upload
+    completion_message TEXT        -- Success/completion message from upload
 );
 
 CREATE INDEX IF NOT EXISTS idx_uploads_node_status 
@@ -38,13 +27,19 @@ ON uploads (node_name, status);
 CREATE INDEX IF NOT EXISTS idx_uploads_started 
 ON uploads (started_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_uploads_completed 
+ON uploads (node_name, completed_at DESC) WHERE completed_at IS NOT NULL;
+
 -- Upload Progress Table
--- Records progress checks during upload operations
+-- Records progress checks during upload operations (progress tracking only)
 CREATE TABLE IF NOT EXISTS upload_progress (
     id BIGSERIAL PRIMARY KEY,
     upload_id BIGINT NOT NULL REFERENCES uploads(id),
     checked_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    progress_data JSONB NOT NULL
+    progress_percent DECIMAL(5,2),  -- e.g., 8.96, 100.00
+    chunks_completed INTEGER,       -- e.g., 284
+    chunks_total INTEGER,          -- e.g., 3170
+    raw_status TEXT                -- Raw status output for debugging
 );
 
 CREATE INDEX IF NOT EXISTS idx_upload_progress_upload 

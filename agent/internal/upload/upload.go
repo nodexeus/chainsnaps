@@ -20,25 +20,29 @@ type JSONB map[string]interface{}
 
 // Upload represents an upload operation
 type Upload struct {
+	ID                int64
+	NodeName          string
+	Protocol          string
+	NodeType          string
+	StartedAt         time.Time
+	CompletedAt       *time.Time
+	Status            string
+	TriggerType       string
+	ErrorMessage      *string
+	ProtocolData      JSONB   // Blockchain state when upload started
+	TotalChunks       *int    // Total chunks in completed upload
+	CompletionMessage *string // Success/completion message
+}
+
+// UploadProgress represents a progress check during an upload
+type UploadProgress struct {
 	ID              int64
-	NodeName        string
-	StartedAt       time.Time
-	CompletedAt     *time.Time
-	Status          string
-	Progress        JSONB
+	UploadID        int64
+	CheckedAt       time.Time
 	ProgressPercent *float64
 	ChunksCompleted *int
 	ChunksTotal     *int
-	TriggerType     string
-	ErrorMessage    *string
-}
-
-// UploadProgress represents a progress check for an upload
-type UploadProgress struct {
-	ID           int64
-	UploadID     int64
-	CheckedAt    time.Time
-	ProgressData JSONB
+	RawStatus       *string
 }
 
 // Database interface for upload persistence
@@ -46,6 +50,7 @@ type Database interface {
 	CreateUpload(ctx context.Context, upload Upload) (int64, error)
 	UpdateUpload(ctx context.Context, upload Upload) error
 	GetRunningUploadForNode(ctx context.Context, nodeName string) (*Upload, error)
+	GetLatestCompletedUploadForNode(ctx context.Context, nodeName string) (*Upload, error)
 	StoreUploadProgress(ctx context.Context, progress UploadProgress) error
 }
 
@@ -310,7 +315,61 @@ func parseInt(s string) (int, error) {
 	return 0, fmt.Errorf("invalid int: %s", s)
 }
 
-// InitiateUpload starts a new upload for a node
+// InitiateUploadWithProtocolData starts a new upload for a node with protocol data
+func (m *Manager) InitiateUploadWithProtocolData(ctx context.Context, nodeName string, triggerType string, protocol string, nodeType string, protocolData map[string]interface{}) (int64, error) {
+	m.logger.WithFields(logrus.Fields{
+		"component":    "upload",
+		"node":         nodeName,
+		"protocol":     protocol,
+		"trigger_type": triggerType,
+		"action":       "initiate_with_protocol_data",
+	}).Info("Initiating upload with protocol data")
+
+	// Execute: bv node run upload <node>
+	stdout, stderr, err := m.executor.Execute(ctx, "bv", "node", "run", "upload", nodeName)
+	if err != nil {
+		m.logger.WithFields(logrus.Fields{
+			"component": "upload",
+			"node":      nodeName,
+			"error":     err.Error(),
+			"stderr":    stderr,
+			"stdout":    stdout,
+		}).Error("Failed to initiate upload")
+		return 0, fmt.Errorf("failed to initiate upload: %w", err)
+	}
+
+	// Create upload record in database with protocol data
+	upload := Upload{
+		NodeName:     nodeName,
+		Protocol:     protocol,
+		NodeType:     nodeType,
+		StartedAt:    time.Now(),
+		Status:       "running",
+		TriggerType:  triggerType,
+		ProtocolData: JSONB(protocolData),
+	}
+
+	uploadID, err := m.db.CreateUpload(ctx, upload)
+	if err != nil {
+		m.logger.WithFields(logrus.Fields{
+			"component": "upload",
+			"node":      nodeName,
+			"error":     err.Error(),
+		}).Error("Failed to create upload record")
+		return 0, fmt.Errorf("failed to create upload record: %w", err)
+	}
+
+	m.logger.WithFields(logrus.Fields{
+		"component":     "upload",
+		"node":          nodeName,
+		"upload_id":     uploadID,
+		"protocol_data": protocolData,
+	}).Info("Upload initiated successfully with protocol data")
+
+	return uploadID, nil
+}
+
+// InitiateUpload starts a new upload for a node (legacy method)
 func (m *Manager) InitiateUpload(ctx context.Context, nodeName string, triggerType string) (int64, error) {
 	m.logger.WithFields(logrus.Fields{
 		"component":    "upload",
@@ -331,19 +390,15 @@ func (m *Manager) InitiateUpload(ctx context.Context, nodeName string, triggerTy
 		return 0, fmt.Errorf("failed to initiate upload: %w", err)
 	}
 
-	// Create upload record in database
-	initialProgress := JSONB{"stdout": stdout, "stderr": stderr}
-	progressPercent, chunksCompleted, chunksTotal := m.extractProgressData(initialProgress)
-
+	// Create upload record in database (legacy method - minimal protocol data)
 	upload := Upload{
-		NodeName:        nodeName,
-		StartedAt:       time.Now(),
-		Status:          "running",
-		Progress:        initialProgress,
-		ProgressPercent: progressPercent,
-		ChunksCompleted: chunksCompleted,
-		ChunksTotal:     chunksTotal,
-		TriggerType:     triggerType,
+		NodeName:     nodeName,
+		Protocol:     "unknown", // Legacy uploads don't have protocol info
+		NodeType:     "unknown",
+		StartedAt:    time.Now(),
+		Status:       "running",
+		TriggerType:  triggerType,
+		ProtocolData: JSONB{"stdout": stdout, "stderr": stderr, "legacy": true},
 	}
 
 	uploadID, err := m.db.CreateUpload(ctx, upload)
@@ -380,42 +435,69 @@ func (m *Manager) MonitorUploadProgress(ctx context.Context, uploadID int64, nod
 		return fmt.Errorf("failed to check upload status: %w", err)
 	}
 
-	// No need to store every progress check - just update the main upload record
-
 	// Extract structured progress data
 	progressPercent, chunksCompleted, chunksTotal := m.extractProgressData(status.Progress)
 
-	// Update the main upload record with current progress (whether running or not)
-	upload := Upload{
-		ID:              uploadID,
-		Progress:        status.Progress,
+	// Store progress in upload_progress table
+	var rawStatus *string
+	if rawOutput, ok := status.Progress["raw_output"].(string); ok {
+		rawStatus = &rawOutput
+	}
+
+	progress := UploadProgress{
+		UploadID:        uploadID,
+		CheckedAt:       time.Now(),
 		ProgressPercent: progressPercent,
 		ChunksCompleted: chunksCompleted,
 		ChunksTotal:     chunksTotal,
+		RawStatus:       rawStatus,
 	}
 
-	// If upload is no longer running, also mark it as completed
-	if !status.IsRunning {
-		now := time.Now()
-		upload.CompletedAt = &now
-		upload.Status = "completed"
-
-		m.logger.WithFields(logrus.Fields{
-			"component": "upload",
-			"node":      nodeName,
-			"upload_id": uploadID,
-		}).Info("Upload completed")
-	}
-
-	// Update the upload record (either with progress update or completion)
-	if err := m.db.UpdateUpload(ctx, upload); err != nil {
+	if err := m.db.StoreUploadProgress(ctx, progress); err != nil {
 		m.logger.WithFields(logrus.Fields{
 			"component": "upload",
 			"node":      nodeName,
 			"upload_id": uploadID,
 			"error":     err.Error(),
-		}).Error("Failed to update upload record")
-		return fmt.Errorf("failed to update upload: %w", err)
+		}).Warn("Failed to store upload progress")
+		// Don't fail the whole operation if progress storage fails
+	}
+
+	// If upload is no longer running, update the main upload record with completion data
+	if !status.IsRunning {
+		now := time.Now()
+
+		// Extract completion message
+		var completionMessage *string
+		if statusMsg, ok := status.Progress["status"].(string); ok {
+			completionMessage = &statusMsg
+		}
+
+		upload := Upload{
+			ID:                uploadID,
+			Status:            "completed",
+			CompletedAt:       &now,
+			TotalChunks:       chunksTotal,
+			CompletionMessage: completionMessage,
+		}
+
+		if err := m.db.UpdateUpload(ctx, upload); err != nil {
+			m.logger.WithFields(logrus.Fields{
+				"component": "upload",
+				"node":      nodeName,
+				"upload_id": uploadID,
+				"error":     err.Error(),
+			}).Error("Failed to update upload completion")
+			return fmt.Errorf("failed to update upload completion: %w", err)
+		}
+
+		m.logger.WithFields(logrus.Fields{
+			"component":          "upload",
+			"node":               nodeName,
+			"upload_id":          uploadID,
+			"total_chunks":       chunksTotal,
+			"completion_message": completionMessage,
+		}).Info("Upload completed")
 	}
 
 	return nil

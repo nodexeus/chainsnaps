@@ -49,6 +49,10 @@ func (m *mockDatabase) GetRunningUploadForNode(ctx context.Context, nodeName str
 	return nil, nil
 }
 
+func (m *mockDatabase) GetLatestCompletedUploadForNode(ctx context.Context, nodeName string) (*Upload, error) {
+	return nil, nil
+}
+
 func (m *mockDatabase) StoreUploadProgress(ctx context.Context, progress UploadProgress) error {
 	if m.storeUploadProgressFunc != nil {
 		return m.storeUploadProgressFunc(ctx, progress)
@@ -385,7 +389,7 @@ progress:         100.00% (3248/3248 completed)`, "", nil
 }
 
 func TestMonitorUploadProgress_UpdatesProgress(t *testing.T) {
-	var capturedUpload Upload
+	var capturedProgress UploadProgress
 
 	executor := &mockExecutor{
 		executeFunc: func(ctx context.Context, command string, args ...string) (stdout, stderr string, err error) {
@@ -395,8 +399,8 @@ progress:         75.00% (2436/3248 uploading)`, "", nil
 	}
 
 	db := &mockDatabase{
-		updateUploadFunc: func(ctx context.Context, upload Upload) error {
-			capturedUpload = upload
+		storeUploadProgressFunc: func(ctx context.Context, progress UploadProgress) error {
+			capturedProgress = progress
 			return nil
 		},
 	}
@@ -408,21 +412,20 @@ progress:         75.00% (2436/3248 uploading)`, "", nil
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	if capturedUpload.ID != 999 {
-		t.Errorf("Expected upload ID 999, got %d", capturedUpload.ID)
+	if capturedProgress.UploadID != 999 {
+		t.Errorf("Expected upload ID 999, got %d", capturedProgress.UploadID)
 	}
 
-	if capturedUpload.Progress == nil {
-		t.Error("Expected Progress to be set")
+	if capturedProgress.ProgressPercent == nil || *capturedProgress.ProgressPercent != 75.0 {
+		t.Errorf("Expected progress percent 75.0, got %v", capturedProgress.ProgressPercent)
 	}
 
-	// Should not be marked as completed since it's still running
-	if capturedUpload.Status == "completed" {
-		t.Error("Expected upload not to be marked as completed when still running")
+	if capturedProgress.ChunksCompleted == nil || *capturedProgress.ChunksCompleted != 2436 {
+		t.Errorf("Expected chunks completed 2436, got %v", capturedProgress.ChunksCompleted)
 	}
 
-	if capturedUpload.CompletedAt != nil {
-		t.Error("Expected CompletedAt to be nil when upload is still running")
+	if capturedProgress.ChunksTotal == nil || *capturedProgress.ChunksTotal != 3248 {
+		t.Errorf("Expected chunks total 3248, got %v", capturedProgress.ChunksTotal)
 	}
 }
 
@@ -504,8 +507,8 @@ func TestCheckUploadStatus_ErrorHandling(t *testing.T) {
 }
 
 func TestMonitorUploadProgress_ContinuesOnRunning(t *testing.T) {
-	var updateCalled bool
-	var updatedUpload Upload
+	var progressStored bool
+	var storedProgress UploadProgress
 
 	executor := &mockExecutor{
 		executeFunc: func(ctx context.Context, command string, args ...string) (stdout, stderr string, err error) {
@@ -515,9 +518,9 @@ progress:         50.00% (1624/3248 uploading)`, "", nil
 	}
 
 	db := &mockDatabase{
-		updateUploadFunc: func(ctx context.Context, upload Upload) error {
-			updateCalled = true
-			updatedUpload = upload
+		storeUploadProgressFunc: func(ctx context.Context, progress UploadProgress) error {
+			progressStored = true
+			storedProgress = progress
 			return nil
 		},
 	}
@@ -529,17 +532,16 @@ progress:         50.00% (1624/3248 uploading)`, "", nil
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	if !updateCalled {
-		t.Error("Expected UpdateUpload to be called to update progress even when upload is still running")
+	if !progressStored {
+		t.Error("Expected StoreUploadProgress to be called for running upload")
 	}
 
-	// Should update progress but not mark as completed
-	if updatedUpload.Status == "completed" {
-		t.Error("Expected upload not to be marked as completed when still running")
+	if storedProgress.UploadID != 777 {
+		t.Errorf("Expected upload ID 777, got %d", storedProgress.UploadID)
 	}
 
-	if updatedUpload.CompletedAt != nil {
-		t.Error("Expected CompletedAt to be nil when upload is still running")
+	if storedProgress.ProgressPercent == nil || *storedProgress.ProgressPercent != 50.0 {
+		t.Errorf("Expected progress percent 50.0, got %v", storedProgress.ProgressPercent)
 	}
 }
 

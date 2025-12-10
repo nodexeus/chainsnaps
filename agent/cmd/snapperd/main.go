@@ -33,30 +33,38 @@ type DatabaseAdapter struct {
 	db *database.DB
 }
 
-// CreateUpload adapts database.Upload to upload.Upload
+// CreateUpload adapts upload.Upload to database.Upload
 func (a *DatabaseAdapter) CreateUpload(ctx context.Context, u upload.Upload) (int64, error) {
 	dbUpload := database.Upload{
-		NodeName:     u.NodeName,
-		StartedAt:    u.StartedAt,
-		Status:       u.Status,
-		Progress:     database.JSONB(u.Progress),
-		TriggerType:  u.TriggerType,
-		ErrorMessage: u.ErrorMessage,
+		NodeName:          u.NodeName,
+		Protocol:          u.Protocol,
+		NodeType:          u.NodeType,
+		StartedAt:         u.StartedAt,
+		Status:            u.Status,
+		TriggerType:       u.TriggerType,
+		ErrorMessage:      u.ErrorMessage,
+		ProtocolData:      database.JSONB(u.ProtocolData),
+		TotalChunks:       u.TotalChunks,
+		CompletionMessage: u.CompletionMessage,
 	}
 	return a.db.CreateUpload(ctx, dbUpload)
 }
 
-// UpdateUpload adapts database.Upload to upload.Upload
+// UpdateUpload adapts upload.Upload to database.Upload
 func (a *DatabaseAdapter) UpdateUpload(ctx context.Context, u upload.Upload) error {
 	dbUpload := database.Upload{
-		ID:           u.ID,
-		NodeName:     u.NodeName,
-		StartedAt:    u.StartedAt,
-		CompletedAt:  u.CompletedAt,
-		Status:       u.Status,
-		Progress:     database.JSONB(u.Progress),
-		TriggerType:  u.TriggerType,
-		ErrorMessage: u.ErrorMessage,
+		ID:                u.ID,
+		NodeName:          u.NodeName,
+		Protocol:          u.Protocol,
+		NodeType:          u.NodeType,
+		StartedAt:         u.StartedAt,
+		CompletedAt:       u.CompletedAt,
+		Status:            u.Status,
+		TriggerType:       u.TriggerType,
+		ErrorMessage:      u.ErrorMessage,
+		ProtocolData:      database.JSONB(u.ProtocolData),
+		TotalChunks:       u.TotalChunks,
+		CompletionMessage: u.CompletionMessage,
 	}
 	return a.db.UpdateUpload(ctx, dbUpload)
 }
@@ -71,25 +79,57 @@ func (a *DatabaseAdapter) GetRunningUploadForNode(ctx context.Context, nodeName 
 		return nil, nil
 	}
 	return &upload.Upload{
-		ID:           dbUpload.ID,
-		NodeName:     dbUpload.NodeName,
-		StartedAt:    dbUpload.StartedAt,
-		CompletedAt:  dbUpload.CompletedAt,
-		Status:       dbUpload.Status,
-		Progress:     upload.JSONB(dbUpload.Progress),
-		TriggerType:  dbUpload.TriggerType,
-		ErrorMessage: dbUpload.ErrorMessage,
+		ID:                dbUpload.ID,
+		NodeName:          dbUpload.NodeName,
+		Protocol:          dbUpload.Protocol,
+		NodeType:          dbUpload.NodeType,
+		StartedAt:         dbUpload.StartedAt,
+		CompletedAt:       dbUpload.CompletedAt,
+		Status:            dbUpload.Status,
+		TriggerType:       dbUpload.TriggerType,
+		ErrorMessage:      dbUpload.ErrorMessage,
+		ProtocolData:      upload.JSONB(dbUpload.ProtocolData),
+		TotalChunks:       dbUpload.TotalChunks,
+		CompletionMessage: dbUpload.CompletionMessage,
 	}, nil
 }
 
-// StoreUploadProgress adapts database.UploadProgress to upload.UploadProgress
+// StoreUploadProgress adapts upload.UploadProgress to database.UploadProgress
 func (a *DatabaseAdapter) StoreUploadProgress(ctx context.Context, p upload.UploadProgress) error {
 	dbProgress := database.UploadProgress{
-		UploadID:     p.UploadID,
-		CheckedAt:    p.CheckedAt,
-		ProgressData: database.JSONB(p.ProgressData),
+		UploadID:        p.UploadID,
+		CheckedAt:       p.CheckedAt,
+		ProgressPercent: p.ProgressPercent,
+		ChunksCompleted: p.ChunksCompleted,
+		ChunksTotal:     p.ChunksTotal,
+		RawStatus:       p.RawStatus,
 	}
 	return a.db.StoreUploadProgress(ctx, dbProgress)
+}
+
+// GetLatestCompletedUploadForNode adapts database.Upload to upload.Upload
+func (a *DatabaseAdapter) GetLatestCompletedUploadForNode(ctx context.Context, nodeName string) (*upload.Upload, error) {
+	dbUpload, err := a.db.GetLatestCompletedUploadForNode(ctx, nodeName)
+	if err != nil {
+		return nil, err
+	}
+	if dbUpload == nil {
+		return nil, nil
+	}
+	return &upload.Upload{
+		ID:                dbUpload.ID,
+		NodeName:          dbUpload.NodeName,
+		Protocol:          dbUpload.Protocol,
+		NodeType:          dbUpload.NodeType,
+		StartedAt:         dbUpload.StartedAt,
+		CompletedAt:       dbUpload.CompletedAt,
+		Status:            dbUpload.Status,
+		TriggerType:       dbUpload.TriggerType,
+		ErrorMessage:      dbUpload.ErrorMessage,
+		ProtocolData:      upload.JSONB(dbUpload.ProtocolData),
+		TotalChunks:       dbUpload.TotalChunks,
+		CompletionMessage: dbUpload.CompletionMessage,
+	}, nil
 }
 
 func main() {
@@ -430,25 +470,29 @@ func handleStatusCommand(configPath string, consoleMode bool) int {
 
 	fmt.Printf("Active uploads: %d\n\n", len(runningUploads))
 	for _, upload := range runningUploads {
-		fmt.Printf("Node: %s\n", upload.NodeName)
+		fmt.Printf("Node: %s (%s)\n", upload.NodeName, upload.Protocol)
 		fmt.Printf("  Upload ID: %d\n", upload.ID)
 		fmt.Printf("  Started: %s\n", upload.StartedAt.Format(time.RFC3339))
 		fmt.Printf("  Duration: %s\n", time.Since(upload.StartedAt).Round(time.Second))
+		fmt.Printf("  Trigger: %s\n", upload.TriggerType)
 
-		// Display progress using structured columns (preferred) or fallback to JSONB
-		if upload.ProgressPercent != nil && upload.ChunksCompleted != nil && upload.ChunksTotal != nil {
-			fmt.Printf("  Progress: %.2f%% (%d/%d multi-client upload (in progress clients))\n",
-				*upload.ProgressPercent, *upload.ChunksCompleted, *upload.ChunksTotal)
-			fmt.Printf("  Percent: %.2f%%\n", *upload.ProgressPercent)
-		} else if upload.Progress != nil {
-			// Fallback to JSONB parsing for backwards compatibility
-			if progress, ok := upload.Progress["progress"]; ok {
-				fmt.Printf("  Progress: %v\n", progress)
+		// Display protocol data (blockchain state when upload started)
+		if upload.ProtocolData != nil {
+			fmt.Printf("  Blockchain State:\n")
+			if latestBlock, ok := upload.ProtocolData["latest_block"]; ok && latestBlock != nil {
+				fmt.Printf("    Latest Block: %v\n", latestBlock)
 			}
-			if percent, ok := upload.Progress["progress_percent"]; ok {
-				fmt.Printf("  Percent: %v%%\n", percent)
+			if latestSlot, ok := upload.ProtocolData["latest_slot"]; ok && latestSlot != nil {
+				fmt.Printf("    Latest Slot: %v\n", latestSlot)
+			}
+			if earliestBlob, ok := upload.ProtocolData["earliest_blob"]; ok && earliestBlob != nil {
+				fmt.Printf("    Earliest Blob: %v\n", earliestBlob)
 			}
 		}
+
+		// Note: Progress data is now stored separately in upload_progress table
+		// For real-time progress, we'd need to query that table
+		fmt.Printf("  Status: %s\n", upload.Status)
 		fmt.Println()
 	}
 
@@ -575,28 +619,10 @@ func handleUploadCommand(configPath string, consoleMode bool, nodeName string) i
 		}
 	}
 
-	// Store metrics
-	nodeMetrics := database.NodeMetrics{
-		NodeName:    nodeName,
-		Protocol:    nodeConfig.Protocol,
-		NodeType:    nodeConfig.Type,
-		CollectedAt: time.Now(),
-		Metrics:     database.JSONB(metrics),
-	}
+	fmt.Println("Metrics collected")
 
-	if err := db.StoreNodeMetrics(ctx, nodeMetrics); err != nil {
-		log.WithFields(logrus.Fields{
-			"component": "upload",
-			"node":      nodeName,
-			"error":     err.Error(),
-		}).Error("Failed to store metrics")
-		return 1
-	}
-
-	fmt.Println("Metrics collected and stored")
-
-	// Step 2: Initiate upload
-	uploadID, err := uploadMgr.InitiateUpload(ctx, nodeName, "manual")
+	// Step 2: Initiate upload with protocol data
+	uploadID, err := uploadMgr.InitiateUploadWithProtocolData(ctx, nodeName, "manual", nodeConfig.Protocol, nodeConfig.Type, metrics)
 	if err != nil {
 		log.WithFields(logrus.Fields{
 			"component": "upload",

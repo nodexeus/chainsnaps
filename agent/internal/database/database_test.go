@@ -8,30 +8,17 @@ import (
 
 // TestDatabaseStructs verifies that the database structs are properly defined
 func TestDatabaseStructs(t *testing.T) {
-	// Test NodeMetrics struct
-	metrics := NodeMetrics{
-		NodeName:    "test-node",
-		Protocol:    "ethereum",
-		NodeType:    "archive",
-		CollectedAt: time.Now(),
-		Metrics: JSONB{
-			"latest_block": 12345,
-			"latest_slot":  67890,
-		},
-	}
-
-	if metrics.NodeName != "test-node" {
-		t.Errorf("expected node name 'test-node', got %s", metrics.NodeName)
-	}
-
 	// Test Upload struct
 	upload := Upload{
 		NodeName:    "test-node",
+		Protocol:    "ethereum",
+		NodeType:    "archive",
 		StartedAt:   time.Now(),
 		Status:      "running",
 		TriggerType: "scheduled",
-		Progress: JSONB{
-			"percent": 50,
+		ProtocolData: JSONB{
+			"latest_block": 12345,
+			"latest_slot":  67890,
 		},
 	}
 
@@ -40,12 +27,18 @@ func TestDatabaseStructs(t *testing.T) {
 	}
 
 	// Test UploadProgress struct
+	progressPercent := 75.5
+	chunksCompleted := 150
+	chunksTotal := 200
+	rawStatus := "Running upload..."
+
 	progress := UploadProgress{
-		UploadID:  1,
-		CheckedAt: time.Now(),
-		ProgressData: JSONB{
-			"percent": 75,
-		},
+		UploadID:        1,
+		CheckedAt:       time.Now(),
+		ProgressPercent: &progressPercent,
+		ChunksCompleted: &chunksCompleted,
+		ChunksTotal:     &chunksTotal,
+		RawStatus:       &rawStatus,
 	}
 
 	if progress.UploadID != 1 {

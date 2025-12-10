@@ -146,16 +146,20 @@ func (s *CronScheduler) Stop(ctx context.Context) error {
 type UploadManager interface {
 	ShouldSkipUpload(ctx context.Context, nodeName string) (bool, error)
 	InitiateUpload(ctx context.Context, nodeName string, triggerType string) (int64, error)
+	InitiateUploadWithProtocolData(ctx context.Context, nodeName string, triggerType string, protocol string, nodeType string, protocolData map[string]interface{}) (int64, error)
 	MonitorUploadProgress(ctx context.Context, uploadID int64, nodeName string) error
 	CheckUploadStatus(ctx context.Context, nodeName string) (*upload.UploadStatus, error)
 }
 
 // Database interface for database operations
 type Database interface {
-	StoreNodeMetrics(ctx context.Context, metrics database.NodeMetrics) error
 	CreateUpload(ctx context.Context, upload database.Upload) (int64, error)
+	UpdateUpload(ctx context.Context, upload database.Upload) error
 	GetRunningUploads(ctx context.Context) ([]database.Upload, error)
 	GetRunningUploadForNode(ctx context.Context, nodeName string) (*database.Upload, error)
+	GetLatestCompletedUploadForNode(ctx context.Context, nodeName string) (*database.Upload, error)
+	UpsertRunningUpload(ctx context.Context, upload database.Upload) (int64, error)
+	StoreUploadProgress(ctx context.Context, progress database.UploadProgress) error
 }
 
 // NodeUploadJob handles the upload workflow for a single node
@@ -256,35 +260,8 @@ func (j *NodeUploadJob) Run(ctx context.Context) error {
 		}
 	}
 
-	// Step 3: Store metrics in database
-	nodeMetrics := database.NodeMetrics{
-		NodeName:    j.nodeName,
-		Protocol:    j.nodeConfig.Protocol,
-		NodeType:    j.nodeConfig.Type,
-		CollectedAt: time.Now(),
-		Metrics:     database.JSONB(metrics),
-	}
-
-	if err := j.db.StoreNodeMetrics(ctx, nodeMetrics); err != nil {
-		j.logger.WithFields(logrus.Fields{
-			"component": "scheduler",
-			"node":      j.nodeName,
-			"error":     err.Error(),
-		}).Error("Failed to store metrics")
-		j.sendNotification(ctx, notification.EventFailure, "Failed to store metrics", map[string]interface{}{
-			"error": err.Error(),
-		})
-		return fmt.Errorf("failed to store metrics: %w", err)
-	}
-
-	j.logger.WithFields(logrus.Fields{
-		"component": "scheduler",
-		"node":      j.nodeName,
-		"metrics":   metrics,
-	}).Info("Metrics collected and stored")
-
-	// Step 4: Initiate upload
-	uploadID, err := j.uploadManager.InitiateUpload(ctx, j.nodeName, "scheduled")
+	// Step 3: Initiate upload with protocol data (metrics become part of upload record)
+	uploadID, err := j.uploadManager.InitiateUploadWithProtocolData(ctx, j.nodeName, "scheduled", j.nodeConfig.Protocol, j.nodeConfig.Type, metrics)
 	if err != nil {
 		j.logger.WithFields(logrus.Fields{
 			"component": "scheduler",
@@ -411,11 +388,30 @@ func (j *UploadMonitorJob) Run(ctx context.Context) error {
 		"job":       "upload_monitor",
 	}).Debug("Starting comprehensive upload monitor job")
 
-	// Step 1: Check all configured nodes for running uploads (even if not in database)
-	discoveredUploads := make(map[string]bool) // nodeName -> isRunning
-	var discoveryWg sync.WaitGroup
+	// Step 1: Get all running uploads from database first
+	runningUploads, err := j.db.GetRunningUploads(ctx)
+	if err != nil {
+		j.logger.WithFields(logrus.Fields{
+			"component": "scheduler",
+			"error":     err.Error(),
+		}).Error("Failed to get running uploads")
+		return fmt.Errorf("failed to get running uploads: %w", err)
+	}
 
+	// Step 2: Check for external uploads (running uploads not in database)
+	trackedNodes := make(map[string]bool)
+	for _, upload := range runningUploads {
+		trackedNodes[upload.NodeName] = true
+	}
+
+	// Check all configured nodes for external uploads
+	var discoveryWg sync.WaitGroup
 	for nodeName := range j.nodeConfigs {
+		// Skip nodes that already have tracked uploads
+		if trackedNodes[nodeName] {
+			continue
+		}
+
 		discoveryWg.Add(1)
 		go func(node string) {
 			defer discoveryWg.Done()
@@ -431,91 +427,48 @@ func (j *UploadMonitorJob) Run(ctx context.Context) error {
 				return
 			}
 
-			discoveredUploads[node] = status.IsRunning
-
-			// If upload is running but not in database, create a record
+			// Only create record for truly external uploads (not already tracked)
 			if status.IsRunning {
-				existingUpload, err := j.db.GetRunningUploadForNode(ctx, node)
+				// Convert upload.JSONB to database.JSONB
+				dbProgress := make(database.JSONB)
+				for k, v := range status.Progress {
+					dbProgress[k] = v
+				}
+
+				nodeConfig := j.nodeConfigs[node]
+				upload := database.Upload{
+					NodeName:     node,
+					Protocol:     nodeConfig.Protocol,
+					NodeType:     nodeConfig.Type,
+					StartedAt:    time.Now(), // Only set this for NEW external records
+					Status:       "running",
+					TriggerType:  "external",
+					ProtocolData: dbProgress, // Store initial progress data as protocol data for external uploads
+				}
+
+				uploadID, err := j.db.CreateUpload(ctx, upload)
 				if err != nil {
 					j.logger.WithFields(logrus.Fields{
 						"component": "scheduler",
 						"node":      node,
 						"error":     err.Error(),
-					}).Warn("Failed to check database for existing upload")
+					}).Error("Failed to create database record for external upload")
 					return
 				}
 
-				if existingUpload == nil {
-					// Create database record for externally started upload
-					// Convert upload.JSONB to database.JSONB
-					dbProgress := make(database.JSONB)
-					for k, v := range status.Progress {
-						dbProgress[k] = v
-					}
+				j.logger.WithFields(logrus.Fields{
+					"component": "scheduler",
+					"node":      node,
+					"upload_id": uploadID,
+				}).Info("Discovered and registered external upload")
 
-					// Extract structured progress data
-					var progressPercent *float64
-					var chunksCompleted *int
-					var chunksTotal *int
-
-					if percentStr, ok := status.Progress["progress_percent"].(string); ok {
-						if percent, err := parseFloat(percentStr); err == nil {
-							progressPercent = &percent
-						}
-					}
-					if completedStr, ok := status.Progress["chunks_completed"].(string); ok {
-						if completed, err := parseInt(completedStr); err == nil {
-							chunksCompleted = &completed
-						}
-					}
-					if totalStr, ok := status.Progress["chunks_total"].(string); ok {
-						if total, err := parseInt(totalStr); err == nil {
-							chunksTotal = &total
-						}
-					}
-
-					upload := database.Upload{
-						NodeName:        node,
-						StartedAt:       time.Now(),
-						Status:          "running",
-						Progress:        dbProgress,
-						ProgressPercent: progressPercent,
-						ChunksCompleted: chunksCompleted,
-						ChunksTotal:     chunksTotal,
-						TriggerType:     "external",
-					}
-
-					uploadID, err := j.db.CreateUpload(ctx, upload)
-					if err != nil {
-						j.logger.WithFields(logrus.Fields{
-							"component": "scheduler",
-							"node":      node,
-							"error":     err.Error(),
-						}).Error("Failed to create database record for external upload")
-						return
-					}
-
-					j.logger.WithFields(logrus.Fields{
-						"component": "scheduler",
-						"node":      node,
-						"upload_id": uploadID,
-					}).Info("Discovered and registered external upload")
-				}
+				// Add to running uploads list for monitoring
+				runningUploads = append(runningUploads, upload)
 			}
 		}(nodeName)
 	}
 
 	discoveryWg.Wait()
-
-	// Step 2: Get all running uploads from database (including newly discovered ones)
-	runningUploads, err := j.db.GetRunningUploads(ctx)
-	if err != nil {
-		j.logger.WithFields(logrus.Fields{
-			"component": "scheduler",
-			"error":     err.Error(),
-		}).Error("Failed to get running uploads")
-		return fmt.Errorf("failed to get running uploads: %w", err)
-	}
 
 	if len(runningUploads) == 0 {
 		j.logger.WithFields(logrus.Fields{
