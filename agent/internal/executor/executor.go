@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -19,6 +21,7 @@ type CommandExecutor interface {
 // DefaultExecutor is the standard implementation of CommandExecutor
 type DefaultExecutor struct {
 	logger *logrus.Logger
+	bvMu   sync.Mutex // Mutex to serialize bv CLI commands
 }
 
 // NewDefaultExecutor creates a new DefaultExecutor with the provided logger
@@ -33,6 +36,14 @@ func NewDefaultExecutor(logger *logrus.Logger) *DefaultExecutor {
 
 // Execute runs a command with context support and captures stdout and stderr separately
 func (e *DefaultExecutor) Execute(ctx context.Context, command string, args ...string) (stdout, stderr string, err error) {
+	// Serialize bv CLI commands to prevent race conditions
+	// The bv CLI rewrites /etc/blockvisor.json on every run, causing race conditions in parallel execution
+	isBvCommand := command == "bv" || strings.HasSuffix(command, "/bv")
+	if isBvCommand {
+		e.bvMu.Lock()
+		defer e.bvMu.Unlock()
+	}
+
 	// Log the command being executed
 	e.logger.WithFields(logrus.Fields{
 		"component": "executor",
