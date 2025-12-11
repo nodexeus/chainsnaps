@@ -350,6 +350,14 @@ func (m *Manager) InitiateUploadWithProtocolData(ctx context.Context, nodeName s
 		"action":       "initiate_with_protocol_data",
 	}).Info("Initiating upload with protocol data")
 
+	// Create upload record in database FIRST to prevent race condition with UploadMonitorJob
+	// This ensures the upload is tracked before the actual upload command starts,
+	// preventing the monitor from "discovering" it as an external upload.
+	uploadID, err := m.CreateUploadRecord(ctx, nodeName, protocol, nodeType, triggerType, protocolData)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create upload record: %w", err)
+	}
+
 	// Execute: bv node run upload <node>
 	stdout, stderr, err := m.executor.Execute(ctx, "bv", "node", "run", "upload", nodeName)
 	if err != nil {
@@ -359,14 +367,13 @@ func (m *Manager) InitiateUploadWithProtocolData(ctx context.Context, nodeName s
 			"error":     err.Error(),
 			"stderr":    stderr,
 			"stdout":    stdout,
+			"upload_id": uploadID,
 		}).Error("Failed to initiate upload")
+		// Mark the upload as failed since we already created the record
+		completionMsg := fmt.Sprintf("Failed to start upload: %s", err.Error())
+		now := time.Now()
+		_ = m.db.UpdateUploadCompletion(ctx, uploadID, now, "failed", &completionMsg, nil)
 		return 0, fmt.Errorf("failed to initiate upload: %w", err)
-	}
-
-	// Create upload record in database with protocol data (check for existing first)
-	uploadID, err := m.CreateUploadRecord(ctx, nodeName, protocol, nodeType, triggerType, protocolData)
-	if err != nil {
-		return 0, fmt.Errorf("failed to create upload record: %w", err)
 	}
 
 	m.logger.WithFields(logrus.Fields{
@@ -388,22 +395,9 @@ func (m *Manager) InitiateUpload(ctx context.Context, nodeName string, triggerTy
 		"action":       "initiate",
 	}).Info("Initiating upload")
 
-	// Execute: bv node run upload <node>
-	stdout, stderr, err := m.executor.Execute(ctx, "bv", "node", "run", "upload", nodeName)
-	if err != nil {
-		m.logger.WithFields(logrus.Fields{
-			"component": "upload",
-			"node":      nodeName,
-			"error":     err.Error(),
-			"stderr":    stderr,
-		}).Error("Failed to initiate upload")
-		return 0, fmt.Errorf("failed to initiate upload: %w", err)
-	}
-
-	// Create upload record in database (legacy method - minimal protocol data)
+	// Create upload record in database FIRST to prevent race condition with UploadMonitorJob
+	// (legacy method - minimal protocol data)
 	protocolData := map[string]interface{}{
-		"stdout": stdout,
-		"stderr": stderr,
 		"legacy": true,
 	}
 
@@ -412,10 +406,29 @@ func (m *Manager) InitiateUpload(ctx context.Context, nodeName string, triggerTy
 		return 0, fmt.Errorf("failed to create upload record: %w", err)
 	}
 
+	// Execute: bv node run upload <node>
+	stdout, stderr, err := m.executor.Execute(ctx, "bv", "node", "run", "upload", nodeName)
+	if err != nil {
+		m.logger.WithFields(logrus.Fields{
+			"component": "upload",
+			"node":      nodeName,
+			"error":     err.Error(),
+			"stderr":    stderr,
+			"upload_id": uploadID,
+		}).Error("Failed to initiate upload")
+		// Mark the upload as failed since we already created the record
+		completionMsg := fmt.Sprintf("Failed to start upload: %s", err.Error())
+		now := time.Now()
+		_ = m.db.UpdateUploadCompletion(ctx, uploadID, now, "failed", &completionMsg, nil)
+		return 0, fmt.Errorf("failed to initiate upload: %w", err)
+	}
+
 	m.logger.WithFields(logrus.Fields{
 		"component": "upload",
 		"node":      nodeName,
 		"upload_id": uploadID,
+		"stdout":    stdout,
+		"stderr":    stderr,
 	}).Info("Upload initiated successfully")
 
 	return uploadID, nil
