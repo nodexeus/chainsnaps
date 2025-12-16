@@ -1,12 +1,12 @@
 package protocol
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/nodexeus/agent/internal/config"
 )
@@ -44,7 +44,7 @@ func (a *ArbitrumModule) CollectMetrics(ctx context.Context, cfg config.NodeConf
 }
 
 // queryBlockNumber queries the latest block number via JSON-RPC
-func (a *ArbitrumModule) queryBlockNumber(ctx context.Context, rpcURL string) (string, error) {
+func (e *ArbitrumModule) queryBlockNumber(ctx context.Context, rpcURL string) (int64, error) {
 	reqBody := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"method":  "eth_blockNumber",
@@ -52,30 +52,9 @@ func (a *ArbitrumModule) queryBlockNumber(ctx context.Context, rpcURL string) (s
 		"id":      1,
 	}
 
-	jsonData, err := json.Marshal(reqBody)
+	respData, err := e.doJSONRPCRequest(ctx, rpcURL, reqBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", rpcURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
+		return 0, err
 	}
 
 	var response struct {
@@ -86,13 +65,33 @@ func (a *ArbitrumModule) queryBlockNumber(ctx context.Context, rpcURL string) (s
 		} `json:"error"`
 	}
 
-	if err := json.Unmarshal(body, &response); err != nil {
-		return "", fmt.Errorf("failed to parse response: %w", err)
+	if err := json.Unmarshal(respData, &response); err != nil {
+		return 0, fmt.Errorf("failed to parse response: %w", err)
 	}
 
 	if response.Error != nil {
-		return "", fmt.Errorf("RPC error: %s", response.Error.Message)
+		return 0, fmt.Errorf("RPC error: %s", response.Error.Message)
 	}
 
-	return response.Result, nil
+	// Convert hexadecimal string to decimal
+	blockNumber, err := e.hexToInt64(response.Result)
+	if err != nil {
+		return 0, fmt.Errorf("failed to convert hex block number to decimal: %w", err)
+	}
+
+	return blockNumber, nil
+}
+
+// hexToInt64 converts a hexadecimal string (with or without 0x prefix) to int64
+func (e *ArbitrumModule) hexToInt64(hexStr string) (int64, error) {
+	// Remove 0x prefix if present
+	hexStr = strings.TrimPrefix(hexStr, "0x")
+
+	// Parse as hexadecimal
+	value, err := strconv.ParseInt(hexStr, 16, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid hex string '%s': %w", hexStr, err)
+	}
+
+	return value, nil
 }

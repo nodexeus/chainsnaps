@@ -151,7 +151,7 @@ func (e *EthereumModule) queryBeaconSlot(ctx context.Context, beaconURL string) 
 
 // queryEarliestBlob queries the earliest blob slot
 func (e *EthereumModule) queryEarliestBlob(ctx context.Context, beaconURL string) (int64, error) {
-	url := fmt.Sprintf("%s/eth/v1/beacon/blob_sidecars/finalized", beaconURL)
+	url := fmt.Sprintf("%s/lighthouse/database/info", beaconURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
