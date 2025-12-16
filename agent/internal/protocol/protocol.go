@@ -41,11 +41,30 @@ func (r *Registry) Register(module ProtocolModule) error {
 		return fmt.Errorf("protocol module name cannot be empty")
 	}
 
-	if _, exists := r.modules[name]; exists {
-		return fmt.Errorf("protocol module %s is already registered", name)
+	names := []string{name}
+	if withAliases, ok := module.(interface{ Aliases() []string }); ok {
+		for _, alias := range withAliases.Aliases() {
+			if alias == "" {
+				return fmt.Errorf("protocol module alias cannot be empty")
+			}
+			names = append(names, alias)
+		}
 	}
 
-	r.modules[name] = module
+	seen := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		if _, dup := seen[n]; dup {
+			return fmt.Errorf("protocol module name %s is duplicated", n)
+		}
+		seen[n] = struct{}{}
+		if _, exists := r.modules[n]; exists {
+			return fmt.Errorf("protocol module %s is already registered", n)
+		}
+	}
+
+	for _, n := range names {
+		r.modules[n] = module
+	}
 	return nil
 }
 

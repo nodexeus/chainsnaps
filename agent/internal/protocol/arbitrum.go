@@ -30,6 +30,11 @@ func (a *ArbitrumModule) Name() string {
 	return "arbitrum"
 }
 
+// Aliases returns alternative protocol identifiers that map to this module.
+func (a *ArbitrumModule) Aliases() []string {
+	return []string{"arbitrum-one"}
+}
+
 // CollectMetrics executes Arbitrum-specific RPC queries
 func (a *ArbitrumModule) CollectMetrics(ctx context.Context, cfg config.NodeConfig) (map[string]interface{}, error) {
 	metrics := make(map[string]interface{})
