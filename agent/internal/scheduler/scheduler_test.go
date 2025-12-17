@@ -515,7 +515,7 @@ func TestUploadMonitorJob_NoRunningUploads(t *testing.T) {
 	}
 
 	protocolRegistry := protocol.NewRegistry()
-	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, notification.NewRegistry(), map[string]config.NodeConfig{}, logger)
+	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, notification.NewRegistry(), nil, map[string]config.NodeConfig{}, logger)
 
 	ctx := context.Background()
 	err := job.Run(ctx)
@@ -552,7 +552,7 @@ func TestUploadMonitorJob_MonitorsMultipleUploads(t *testing.T) {
 	}
 
 	protocolRegistry := protocol.NewRegistry()
-	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, notification.NewRegistry(), map[string]config.NodeConfig{}, logger)
+	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, notification.NewRegistry(), nil, map[string]config.NodeConfig{}, logger)
 
 	ctx := context.Background()
 	err := job.Run(ctx)
@@ -608,7 +608,7 @@ func TestUploadMonitorJob_NodeIsolation(t *testing.T) {
 	}
 
 	protocolRegistry := protocol.NewRegistry()
-	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, notification.NewRegistry(), map[string]config.NodeConfig{}, logger)
+	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, notification.NewRegistry(), nil, map[string]config.NodeConfig{}, logger)
 
 	ctx := context.Background()
 	err := job.Run(ctx)
@@ -682,7 +682,7 @@ func TestUploadMonitorJob_ExternalUploadDiscovery(t *testing.T) {
 	}
 
 	protocolRegistry := protocol.NewRegistry()
-	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, notification.NewRegistry(), nodeConfigs, logger)
+	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, notification.NewRegistry(), nil, nodeConfigs, logger)
 
 	ctx := context.Background()
 
@@ -773,7 +773,7 @@ func TestUploadMonitorJob_DoesNotDuplicateTrackedUploads(t *testing.T) {
 	}
 
 	protocolRegistry := protocol.NewRegistry()
-	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, notification.NewRegistry(), nodeConfigs, logger)
+	job := NewUploadMonitorJob(uploadManager, db, protocolRegistry, notification.NewRegistry(), nil, nodeConfigs, logger)
 
 	ctx := context.Background()
 	err := job.Run(ctx)

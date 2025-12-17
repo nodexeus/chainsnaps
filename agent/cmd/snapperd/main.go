@@ -297,7 +297,7 @@ func runDaemon(configPath string, consoleMode bool) int {
 	sched := scheduler.NewCronScheduler(log.Logger)
 
 	// Add global status update job (upload monitor)
-	monitorJob := scheduler.NewUploadMonitorJob(uploadMgr, db, protocolRegistry, notificationRegistry, cfg.Nodes, log.Logger)
+	monitorJob := scheduler.NewUploadMonitorJob(uploadMgr, db, protocolRegistry, notificationRegistry, cfg.Notifications, cfg.Nodes, log.Logger)
 	if err := sched.AddJob(cfg.Schedule, monitorJob); err != nil {
 		log.WithFields(logrus.Fields{
 			"component": "main",

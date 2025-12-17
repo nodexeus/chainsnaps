@@ -358,6 +358,7 @@ type UploadMonitorJob struct {
 	db               Database
 	protocolRegistry *protocol.Registry
 	notifyRegistry   *notification.Registry
+	globalNotifyCfg  *config.NotificationConfig
 	logger           *logrus.Logger
 	nodeConfigs      map[string]config.NodeConfig
 }
@@ -368,6 +369,7 @@ func NewUploadMonitorJob(
 	db Database,
 	protocolRegistry *protocol.Registry,
 	notifyRegistry *notification.Registry,
+	globalNotifyCfg *config.NotificationConfig,
 	nodeConfigs map[string]config.NodeConfig,
 	logger *logrus.Logger,
 ) *UploadMonitorJob {
@@ -380,6 +382,7 @@ func NewUploadMonitorJob(
 		db:               db,
 		protocolRegistry: protocolRegistry,
 		notifyRegistry:   notifyRegistry,
+		globalNotifyCfg:  globalNotifyCfg,
 		logger:           logger,
 		nodeConfigs:      nodeConfigs,
 	}
@@ -548,6 +551,9 @@ func (j *UploadMonitorJob) sendNotification(ctx context.Context, nodeName string
 	}
 
 	notifyConfig := nodeConfig.Notifications
+	if notifyConfig == nil {
+		notifyConfig = j.globalNotifyCfg
+	}
 	if notifyConfig == nil {
 		return
 	}
